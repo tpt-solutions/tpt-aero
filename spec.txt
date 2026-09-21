@@ -1,0 +1,180 @@
+tpt-aero Design Specification (spec.txt)
+1. Overview
+Name: tpt-aero
+Description: A pure-Rust, AI-native specialized aerodynamics and flight mechanics library. It provides fast, analytical, and semi-empirical aerodynamic solvers (VLM, Panel Methods, BEMT), atmospheric modeling, and stability derivative extraction without C/C++ FFI or external solver dependencies.
+License: MIT (all dependencies must be MIT or compatible; no Apache-2.0-only crates).
+Core Philosophy: Unit-safe, no_std + alloc compatible at the core, differentiable for aerodynamic shape optimization, and mathematically rigorous via native Rust verification tooling and from-scratch implementations.
+2. Design Principles
+Zero External Solver Dependencies: No X-Plane FFI, no AVL (Athena Vortex Lattice) bindings, no external linear solvers. All aerodynamic influence coefficient (AIC) matrix assemblies and linear solves are implemented from scratch in pure Rust, leveraging tpt-math.
+Strict Licensing: No Apache-2.0-only dependencies. The workspace strictly uses MIT, MIT/Apache-2.0 dual, or custom in-house crates.
+Type-State & Dimensional Safety: Compile-time prevention of unit mismatches. Phantom types distinguish between freestream conditions, local flow velocities, and aerodynamic forces. Non-dimensional coefficients (
+C
+L
+,
+C
+D
+,
+C
+m
+C 
+L
+​
+ ,C 
+D
+​
+ ,C 
+m
+​
+ ) and dimensional forces (Newtons) are strictly separated.
+Native Formal Verification: Safety and physical invariants enforced via:
+Kani Rust Verifier: For bounded model checking of critical numerical loops (e.g., proving Vortex Lattice Method (VLM) AIC matrices do not contain singularities for valid geometries, or verifying BEMT induction factors remain within physical bounds 
+0
+≤
+a
+≤
+1
+0≤a≤1).
+Property-Based Testing (proptest): For statistical verification of physical laws (e.g., "reversing the freestream velocity vector reverses the lift vector", "total mass flow is conserved through the actuator disk in BEMT").
+3. Workspace Layout
+
+tpt-aero/
+├── Cargo.toml                 # Workspace manifest (strict dependency linting)
+├── crates/
+│   ├── tpt-aero-core/         # Foundation: Airfoil databases, non-dimensional coefficients, unit-safe types
+│   ├── tpt-aero-vlm/          # Vortex Lattice Method: 3D lifting surfaces, horseshoe vortices, AIC assembly
+│   ├── tpt-aero-panel/        # Panel Methods: Source/doublet panels, slender body theory, subsonic/transonic
+│   ├── tpt-aero-rotor/        # Rotorcraft/Propellers: Blade Element Momentum Theory (BEMT), tip loss models
+│   ├── tpt-aero-atmo/         # Atmospheric models: ISA standard, wind shear, turbulence (Dryden/von Kármán)
+│   ├── tpt-aero-stability/    # Flight mechanics: Stability/control derivatives, dynamic mode extraction
+│   ├── tpt-aero-verify/       # Verification harnesses: Kani proofs, proptest strategies, conservation checks
+│   └── tpt-aero/              # Feature-gated umbrella crate re-exporting all above
+├── spec.txt                   # This document
+└── todo.md                    # Phased build tracking
+
+4. Crate Specifications
+tpt-aero-core
+Purpose: The foundational layer. Defines aerodynamic geometry, airfoil polars, and non-dimensional physics.
+Dependencies: tpt-math (internal, MIT).
+Key Features:
+Unit-safe wrappers for Dynamic Pressure (
+P
+a
+Pa), Mach number, Reynolds number, and Angle of Attack (rad).
+Airfoil polar interpolation (Cl/Cd/Cm vs Alpha/Mach/Re) with stall modeling.
+Geometry primitives: Lifting line panels, quadrilateral surface panels, and airfoil coordinate transformations.
+no_std + alloc compatible.
+tpt-aero-vlm
+Purpose: Fast 3D aerodynamic analysis for wings, tails, and lifting surfaces.
+Key Features:
+From-scratch Vortex Lattice Method (VLM) using horseshoe vortex lattices.
+Aerodynamic Influence Coefficient (AIC) matrix assembly and native LU/Cholesky solve.
+Modeling of camber, twist (washout), and dihedral.
+Differentiable AIC assembly for gradient-based wing shape optimization (e.g., minimizing induced drag via twist distribution).
+tpt-aero-panel
+Purpose: Higher-fidelity 3D aerodynamics for complex fuselage and nacelle geometries.
+Key Features:
+Panel methods using source and doublet distributions.
+Slender body theory for rapid fuselage aerodynamics.
+Compressibility corrections (Prandtl-Glauert, Karman-Tsien) for subsonic/transonic regimes.
+tpt-aero-rotor
+Purpose: Aerodynamics of rotating machinery (propellers, rotors, turbines).
+Key Features:
+Blade Element Momentum Theory (BEMT) with iterative induction factor solving.
+Tip loss models (Prandtl, Glauert) and hub loss corrections.
+Skewed wake and dynamic inflow models for helicopter/VTAM UAV rotors.
+Propeller performance mapping (thrust, power, efficiency vs. advance ratio).
+tpt-aero-atmo
+Purpose: Environmental and atmospheric modeling for flight simulation.
+Key Features:
+International Standard Atmosphere (ISA) model (density, temperature, pressure, speed of sound vs. altitude).
+Wind shear and gust models (1-cos, sharp-edge).
+Continuous turbulence models (Dryden, von Kármán) for flight dynamics simulation.
+tpt-aero-stability
+Purpose: Extraction of aerodynamic derivatives for flight mechanics and control design.
+Key Features:
+Finite-difference and analytical extraction of stability derivatives (
+C
+L
+α
+,
+C
+m
+q
+,
+C
+n
+β
+C 
+L 
+α
+​
+ 
+​
+ ,C 
+m 
+q
+​
+ 
+​
+ ,C 
+n 
+β
+​
+ 
+​
+ , etc.).
+Control surface effectiveness derivatives (
+C
+L
+δ
+e
+,
+C
+m
+δ
+a
+C 
+L 
+δ 
+e
+​
+ 
+​
+ 
+​
+ ,C 
+m 
+δ 
+a
+​
+ 
+​
+ 
+​
+ ).
+Coupling with tpt-control to form the plant matrix for flight control law synthesis.
+tpt-aero-verify
+Purpose: Mathematical verification of aerodynamic algorithms.
+Key Features:
+proptest strategies for generating valid 3D lifting geometries and airfoil polars.
+Kani harnesses to prove BEMT induction factors do not diverge or violate physical bounds (e.g., Glauert's condition).
+Invariant checks: Verify that symmetric geometries at zero angle of attack produce zero rolling/yawing moments.
+5. Integration & Synergies
+tpt-flight-control / tpt-multibody-dynamics: tpt-aero-stability provides the linearized aerodynamic plant matrices. tpt-aero-atmo provides the environmental disturbances. Together, they feed the 6-DOF equations of motion.
+tpt-physics (CFD): tpt-aero acts as the fast, low-fidelity surrogate in the design loop. tpt-physics is reserved for high-fidelity, high-angle-of-attack, or separated flow regimes where VLM/Panel methods fail.
+tpt-systems-optimisation: The differentiable VLM and BEMT implementations allow tpt-systems-optimisation to perform gradient-based multidisciplinary design optimization (MDO) of aircraft or wind turbine blades.
+tpt-fem-modal: Enables aeroelastic coupling (flutter analysis) by combining tpt-aero unsteady aerodynamics with tpt-fem structural mode shapes.
+6. Phased Rollout (todo.md Alignment)
+Phase 0: Foundation & VLM (Weeks 1-3)
+Scaffold workspace with strict dependency linting.
+Implement tpt-aero-core (unit-safe types, airfoil polars, geometry).
+Build tpt-aero-vlm (horseshoe vortices, AIC matrix, native linear solve).
+Verify VLM symmetry and zero-lift conditions via proptest.
+Phase 1: Rotors & Atmosphere (Weeks 4-6)
+Implement tpt-aero-rotor (BEMT, tip loss, iterative induction solver).
+Build tpt-aero-atmo (ISA, Dryden turbulence).
+Integration test: Propeller performance map matches analytical momentum theory limits.
+Phase 2: Panel Methods & Stability (Weeks 7-9)
+Build tpt-aero-panel (source/doublet panels, compressibility corrections).
+Implement tpt-aero-stability (derivative extraction, control effectiveness).
+Write Kani proofs for BEMT induction factor bounds and VLM AIC matrix non-singularity.
