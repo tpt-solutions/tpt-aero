@@ -4,55 +4,55 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 
 ## Phase 0 — Project Setup & Licensing
 
-- [ ] Initialize git repository
-- [ ] Add `LICENSE-MIT` and `LICENSE-APACHE` (copyright TPT Solutions 2026)
-- [ ] Workspace `Cargo.toml` (resolver "2"; workspace package fields: `edition = "2021"`, `rust-version = "1.84"`, `license = "MIT OR Apache-2.0"`, `authors = ["TPT Solutions"]`)
-- [ ] `rust-toolchain.toml` (stable channel, `rustfmt` + `clippy` components, no_std targets e.g. `thumbv6m-none-eabi`, `wasm32-unknown-unknown`)
-- [ ] `deny.toml` (cargo-deny license policy: allow MIT / MIT-OR-Apache-2.0 / dual-licensed only; reject Apache-2.0-only crates)
-- [ ] Workspace lints: `unsafe_code = "forbid"`, `clippy.all = "warn"`
-- [ ] CI workflow `.github/workflows/ci.yml`: fmt check, clippy `-D warnings`, tests via `cargo-nextest` + doctests, no_std build check, `cargo-deny check`, feature-powerset via `cargo-hack`, bench-smoke (`cargo bench --no-run`)
-- [ ] README skeleton (overview, crate map, license badges)
-- [ ] Scaffold all 8 crate directories under `crates/` with empty `lib.rs` + per-crate `Cargo.toml` (`.workspace = true` inheritance):
-  - [ ] `tpt-aero-core`
-  - [ ] `tpt-aero-vlm`
-  - [ ] `tpt-aero-panel`
-  - [ ] `tpt-aero-rotor`
-  - [ ] `tpt-aero-atmo`
-  - [ ] `tpt-aero-stability`
-  - [ ] `tpt-aero-verify`
-  - [ ] `tpt-aero` (umbrella)
-- [ ] Wire up `tpt-math` as local path dependency for `tpt-aero-core`
+- [x] Initialize git repository
+- [x] Add `LICENSE-MIT` and `LICENSE-APACHE` (copyright TPT Solutions 2026)
+- [x] Workspace `Cargo.toml` (resolver "2"; workspace package fields: `edition = "2021"`, `rust-version = "1.84"`, `license = "MIT OR Apache-2.0"`, `authors = ["TPT Solutions"]`)
+- [x] `rust-toolchain.toml` (stable channel, `rustfmt` + `clippy` components, no_std targets e.g. `thumbv6m-none-eabi`, `wasm32-unknown-unknown`)
+- [x] `deny.toml` (cargo-deny license policy: allow MIT / MIT-OR-Apache-2.0 / dual-licensed only; reject Apache-2.0-only crates)
+- [x] Workspace lints: `unsafe_code = "forbid"`, `clippy.all = "warn"`
+- [x] CI workflow `.github/workflows/ci.yml`: fmt check, clippy `-D warnings`, tests via `cargo-nextest` + doctests, no_std build check, `cargo-deny check`, feature-powerset via `cargo-hack`, bench-smoke (`cargo bench --no-run`)
+- [x] README skeleton (overview, crate map, license badges)
+- [x] Scaffold all 8 crate directories under `crates/` with empty `lib.rs` + per-crate `Cargo.toml` (`.workspace = true` inheritance):
+  - [x] `tpt-aero-core`
+  - [x] `tpt-aero-vlm`
+  - [x] `tpt-aero-panel`
+  - [x] `tpt-aero-rotor`
+  - [x] `tpt-aero-atmo`
+  - [x] `tpt-aero-stability`
+  - [x] `tpt-aero-verify`
+  - [x] `tpt-aero` (umbrella)
+- [x] Wire up `tpt-math` as local path dependency for `tpt-aero-core`
 
 ## Phase 1 — Foundation & VLM (Weeks 1-3)
 
 ### tpt-aero-core
-- [ ] Unit-safe wrapper types: Dynamic Pressure (Pa), Mach number, Reynolds number, Angle of Attack (rad)
-- [ ] Phantom-type distinction between freestream conditions, local flow velocities, aerodynamic forces
-- [ ] Non-dimensional coefficient types (CL, CD, Cm) strictly separated from dimensional forces (N)
-- [ ] Airfoil polar interpolation (Cl/Cd/Cm vs Alpha/Mach/Re)
-- [ ] Stall modeling
-- [ ] Geometry primitives: lifting-line panels
-- [ ] Geometry primitives: quadrilateral surface panels
-- [ ] Airfoil coordinate transformations
-- [ ] `no_std` + `alloc` compatibility verified (CI no_std build target)
+- [x] Unit-safe wrapper types: Dynamic Pressure (Pa), Mach number, Reynolds number, Angle of Attack (rad)
+- [x] Phantom-type distinction between freestream conditions, local flow velocities, aerodynamic forces
+- [x] Non-dimensional coefficient types (CL, CD, Cm) strictly separated from dimensional forces (N)
+- [x] Airfoil polar interpolation (Cl/Cd/Cm vs Alpha/Mach/Re)
+- [x] Stall modeling
+- [x] Geometry primitives: lifting-line panels
+- [x] Geometry primitives: quadrilateral surface panels
+- [x] Airfoil coordinate transformations
+- [x] `no_std` + `alloc` compatibility verified (CI no_std build target)
 
 ### tpt-aero-vlm
-- [ ] From-scratch horseshoe vortex lattice implementation
-- [ ] AIC (Aerodynamic Influence Coefficient) matrix assembly
-- [ ] Native LU solve (via tpt-math)
-- [ ] Native Cholesky solve (via tpt-math)
-- [ ] Camber modeling
-- [ ] Twist (washout) modeling
-- [ ] Dihedral modeling
-- [ ] Differentiable AIC assembly (gradient-based wing shape optimization, e.g. induced-drag minimization via twist distribution)
+- [x] From-scratch horseshoe vortex lattice implementation
+- [x] AIC (Aerodynamic Influence Coefficient) matrix assembly
+- [x] Native LU solve (via tpt-math)
+- [x] Native Cholesky solve (via tpt-math)
+- [x] Camber modeling
+- [x] Twist (washout) modeling
+- [x] Dihedral modeling
+- [x] Differentiable AIC assembly (gradient-based wing shape optimization, e.g. induced-drag minimization via twist distribution)
 
 ### tpt-aero-verify (initial)
-- [ ] proptest strategies for generating valid 3D lifting geometries
-- [ ] Property test: symmetric geometries at zero AoA produce zero rolling/yawing moments (VLM)
-- [ ] Property test: reversing freestream velocity vector reverses the lift vector
+- [x] proptest strategies for generating valid 3D lifting geometries
+- [x] Property test: symmetric geometries at zero AoA produce zero rolling/yawing moments (VLM)
+- [x] Property test: reversing freestream velocity vector reverses the lift vector
 
 ### Phase 1 exit criteria
-- [ ] VLM symmetry and zero-lift conditions verified via proptest
+- [x] VLM symmetry and zero-lift conditions verified via proptest
 
 ## Phase 2 — Rotors & Atmosphere (Weeks 4-6)
 

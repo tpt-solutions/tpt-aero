@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc ad823378dd5fbe19af62195535668a07e5e56e1e8987453f8d20bc953bba75d5 # shrinks to params = SymmetricWingParams { span: 0.5, root_chord: 0.1, taper: 0.3, sweep: 0.0, dihedral: 0.0 }, alpha = 0.22533168388813707, (n_span, n_chord) = (4, 1)
