@@ -8,6 +8,16 @@ use tpt_aero_vlm::{CamberModel, VlmModel};
 const RHO: f64 = 1.225;
 const V_INF: f64 = 50.0;
 
+/// Generate a symmetric closed contour (ellipse-like) with random axes.
+fn symmetric_contour(a: f64, b: f64, n: usize) -> Vec<(f64, f64)> {
+    (0..n)
+        .map(|i| {
+            let t = 2.0 * core::f64::consts::PI * i as f64 / n as f64;
+            (a * t.cos(), b * t.sin())
+        })
+        .collect()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
@@ -88,5 +98,36 @@ proptest! {
             fast.cl,
             slow.cl
         );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(16))]
+
+    /// spec.txt §4 invariant (panel methods): a symmetric body at zero
+    /// incidence produces zero net vertical force — the pressure-integrated
+    /// lift of the source-panel solution vanishes over randomized ellipses.
+    #[test]
+    fn panel_symmetric_body_zero_lift(
+        a in 0.5_f64..3.0,
+        b in 0.3_f64..1.5,
+        n in 16_usize..48,
+    ) {
+        let pts = symmetric_contour(a, b, n);
+        let sol = tpt_aero_panel::source::solve_source_panels(&pts, 0.0, 1.0)
+            .expect("solvable");
+        let mut lift = 0.0_f64;
+        for (i, &cp) in sol.cp.iter().enumerate() {
+            let (x1, y1) = pts[i];
+            let (x2, y2) = pts[(i + 1) % n];
+            let dx = x2 - x1;
+            let dy = y2 - y1;
+            let l = (dx * dx + dy * dy).sqrt();
+            let (nx, _ny) = (dy / l, -dx / l);
+            let _ = nx;
+            // Vertical force = −Cp·n_y·l (y is the lift direction).
+            lift += -cp * (-dx / l) * l;
+        }
+        prop_assert!(lift.abs() < 1e-6, "lift = {lift}");
     }
 }

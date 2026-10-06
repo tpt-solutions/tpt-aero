@@ -12,6 +12,11 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(kani)]
+mod kani_proofs;
+#[cfg(not(kani))]
+mod kani_proofs;
+
 use proptest::prelude::*;
 
 /// A symmetric trapezoidal planform drawn from reasonable GA/UA V ranges.

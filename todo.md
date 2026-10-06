@@ -83,24 +83,24 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 ## Phase 3 — Panel Methods & Stability (Weeks 7-9)
 
 ### tpt-aero-panel
-- [ ] Source panel method
-- [ ] Doublet panel method
-- [ ] Slender body theory for rapid fuselage aerodynamics
-- [ ] Prandtl-Glauert compressibility correction
-- [ ] Karman-Tsien compressibility correction
+- [x] Source panel method
+- [x] Doublet panel method
+- [x] Slender body theory for rapid fuselage aerodynamics
+- [x] Prandtl-Glauert compressibility correction
+- [x] Karman-Tsien compressibility correction
 
 ### tpt-aero-stability
-- [ ] Finite-difference stability derivative extraction
-- [ ] Analytical stability derivative extraction
-- [ ] Derivatives: CLα, Cmq, Cnβ (and other standard longitudinal/lateral-directional derivatives)
-- [ ] Control surface effectiveness derivatives: CLδe, Cmδa (and other control derivatives)
-- [ ] Plant-matrix coupling hook for future `tpt-control` integration
+- [x] Finite-difference stability derivative extraction
+- [x] Analytical stability derivative extraction
+- [x] Derivatives: CLα, Cmq, Cnβ (and other standard longitudinal/lateral-directional derivatives)
+- [x] Control surface effectiveness derivatives: CLδe, Cmδa (and other control derivatives)
+- [x] Plant-matrix coupling hook for future `tpt-control` integration
 
 ### tpt-aero-verify (complete)
-- [ ] Kani harness: BEMT induction factors remain within physical bounds (0 ≤ a ≤ 1)
-- [ ] Kani harness: BEMT induction factors do not diverge / satisfy Glauert's condition
-- [ ] Kani proof: VLM AIC matrices do not contain singularities for valid geometries
-- [ ] Invariant check: symmetric geometries at zero AoA produce zero rolling/yawing moments (panel methods)
+- [x] Kani harness: BEMT induction factors remain within physical bounds (0 ≤ a ≤ 1)
+- [x] Kani harness: BEMT induction factors do not diverge / satisfy Glauert's condition
+- [x] Kani proof: VLM AIC matrices do not contain singularities for valid geometries
+- [x] Invariant check: symmetric geometries at zero AoA produce zero rolling/yawing moments (panel methods)
 
 ## Phase 4 — Umbrella Crate, Docs & Release
 

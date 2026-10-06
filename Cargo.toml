@@ -45,6 +45,8 @@ proptest = "1.5"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+# Kani harness modules are cfg(kani)-gated (dev-only verifier per todo.md).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 missing_docs = "allow"
 rust_2021_compatibility = { level = "warn", priority = -1 }
 
