@@ -57,28 +57,28 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 ## Phase 2 — Rotors & Atmosphere (Weeks 4-6)
 
 ### tpt-aero-rotor
-- [ ] BEMT (Blade Element Momentum Theory) core model
-- [ ] Iterative induction factor solver
-- [ ] Prandtl tip loss model
-- [ ] Glauert tip loss model
-- [ ] Hub loss corrections
-- [ ] Skewed wake model
-- [ ] Dynamic inflow model (helicopter/VTOL UAV rotors)
-- [ ] Propeller performance mapping: thrust vs advance ratio
-- [ ] Propeller performance mapping: power vs advance ratio
-- [ ] Propeller performance mapping: efficiency vs advance ratio
+- [x] BEMT (Blade Element Momentum Theory) core model
+- [x] Iterative induction factor solver
+- [x] Prandtl tip loss model
+- [x] Glauert tip loss model
+- [x] Hub loss corrections
+- [x] Skewed wake model
+- [x] Dynamic inflow model (helicopter/VTOL UAV rotors)
+- [x] Propeller performance mapping: thrust vs advance ratio
+- [x] Propeller performance mapping: power vs advance ratio
+- [x] Propeller performance mapping: efficiency vs advance ratio
 
 ### tpt-aero-atmo
-- [ ] ISA (International Standard Atmosphere) model: density, temperature, pressure, speed of sound vs altitude
-- [ ] Wind shear model
-- [ ] Gust models: 1-cos
-- [ ] Gust models: sharp-edge
-- [ ] Dryden continuous turbulence model
-- [ ] von Kármán continuous turbulence model
+- [x] ISA (International Standard Atmosphere) model: density, temperature, pressure, speed of sound vs altitude
+- [x] Wind shear model
+- [x] Gust models: 1-cos
+- [x] Gust models: sharp-edge
+- [x] Dryden continuous turbulence model
+- [x] von Kármán continuous turbulence model
 
 ### Phase 2 exit criteria
-- [ ] Integration test: propeller performance map matches analytical momentum theory limits
-- [ ] Property test: total mass flow conserved through actuator disk in BEMT
+- [x] Integration test: propeller performance map matches analytical momentum theory limits
+- [x] Property test: total mass flow conserved through actuator disk in BEMT
 
 ## Phase 3 — Panel Methods & Stability (Weeks 7-9)
 
