@@ -1,0 +1,61 @@
+[package]
+name = "tpt-aero"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Umbrella crate: feature-gated re-exports of the tpt-aero aerodynamics and flight mechanics stack."
+readme = "README.md"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/tpt-aero"
+keywords = ["aerodynamics", "vlm", "bemt", "flight-mechanics", "atmosphere"]
+categories = ["science", "aerospace", "simulation"]
+
+[dependencies]
+tpt-aero-core = { workspace = true, optional = true }
+tpt-aero-vlm = { workspace = true, optional = true }
+tpt-aero-panel = { workspace = true, optional = true }
+tpt-aero-rotor = { workspace = true, optional = true }
+tpt-aero-atmo = { workspace = true, optional = true }
+tpt-aero-stability = { workspace = true, optional = true }
+tpt-aero-verify = { workspace = true, optional = true }
+
+[features]
+default = ["core", "vlm", "panel", "rotor", "atmo", "stability", "std"]
+core = ["dep:tpt-aero-core"]
+vlm = ["dep:tpt-aero-vlm"]
+panel = ["dep:tpt-aero-panel"]
+rotor = ["dep:tpt-aero-rotor"]
+atmo = ["dep:tpt-aero-atmo"]
+stability = ["dep:tpt-aero-stability"]
+# Verification harnesses are opt-in (they pull the std-only proptest stack).
+verify = ["dep:tpt-aero-verify"]
+std = [
+    "tpt-aero-core?/std",
+    "tpt-aero-vlm?/std",
+    "tpt-aero-panel?/std",
+    "tpt-aero-rotor?/std",
+    "tpt-aero-atmo?/std",
+    "tpt-aero-stability?/std",
+]
+alloc = [
+    "tpt-aero-core?/alloc",
+    "tpt-aero-vlm?/alloc",
+    "tpt-aero-panel?/alloc",
+    "tpt-aero-rotor?/alloc",
+    "tpt-aero-atmo?/alloc",
+    "tpt-aero-stability?/alloc",
+]
+libm = [
+    "tpt-aero-core?/libm",
+    "tpt-aero-vlm?/libm",
+    "tpt-aero-panel?/libm",
+    "tpt-aero-rotor?/libm",
+    "tpt-aero-atmo?/libm",
+    "tpt-aero-stability?/libm",
+]
+
+[lints]
+workspace = true

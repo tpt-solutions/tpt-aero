@@ -1,0 +1,29 @@
+[package]
+name = "tpt-aero-verify"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Verification harnesses: proptest strategies, physical-invariant property tests, Kani proofs (cfg(kani))."
+readme = "README.md"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/tpt-aero-verify"
+keywords = ["verification", "proptest", "kani", "aerodynamics"]
+categories = ["science", "aerospace", "development-tools::testing"]
+
+[dependencies]
+tpt-aero-core = { workspace = true }
+tpt-aero-vlm = { workspace = true }
+tpt-aero-panel = { workspace = true }
+tpt-aero-rotor = { workspace = true }
+tpt-aero-atmo = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["std"]
+std = ["tpt-aero-core/std", "tpt-aero-vlm/std", "tpt-aero-panel/std", "tpt-aero-rotor/std", "tpt-aero-atmo/std", "proptest/std"]
+
+[lints]
+workspace = true

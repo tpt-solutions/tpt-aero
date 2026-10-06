@@ -1,0 +1,28 @@
+[package]
+name = "tpt-aero-panel"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Panel methods: source/doublet distributions, slender body theory, subsonic compressibility corrections."
+readme = "README.md"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/tpt-aero-panel"
+keywords = ["panel-method", "aerodynamics", "potential-flow", "no-std"]
+categories = ["science", "aerospace", "no-std"]
+
+[dependencies]
+tpt-aero-core = { workspace = true }
+tpt-math-numeric = { workspace = true }
+tpt-math-linalg-dense = { workspace = true }
+
+[features]
+default = ["std"]
+std = ["tpt-aero-core/std", "tpt-math-numeric/std", "tpt-math-linalg-dense/std"]
+alloc = ["tpt-aero-core/alloc", "tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc"]
+libm = ["tpt-aero-core/libm", "tpt-math-numeric/libm"]
+
+[lints]
+workspace = true

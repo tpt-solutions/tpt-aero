@@ -1,0 +1,48 @@
+# cargo-deny configuration — license policy enforced per spec.txt §2:
+# MIT / MIT-OR-Apache-2.0 / dual-licensed crates only. Apache-2.0-only crates
+# are rejected everywhere except the Kani verifier, which is a dev-only tool
+# and never linked into any tpt-aero artifact.
+
+[graph]
+# Path deps into the sibling tpt-math workspace are in-house and dual-licensed.
+all-features = true
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "MIT-OR-Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "BSL-1.0",
+]
+# Apache-2.0 alone (i.e. Apache-2.0-only) is deliberately absent from the
+# allow list: any transitive crate licensed Apache-2.0-only fails `cargo deny
+# check licenses`.
+deny = []
+confidence-threshold = 0.93
+
+[[licenses.exceptions]]
+# None yet; kept as a documented extension point. Any exception added here
+# must be justified in spec.txt §2 (Strict Licensing).
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = []
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

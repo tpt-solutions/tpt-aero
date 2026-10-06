@@ -1,0 +1,27 @@
+[package]
+name = "tpt-aero-atmo"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Atmospheric models: ISA standard atmosphere, wind shear, discrete gusts, Dryden and von Kármán turbulence."
+readme = "README.md"
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/tpt-aero-atmo"
+keywords = ["atmosphere", "isa", "turbulence", "dryden", "no-std"]
+categories = ["science", "aerospace", "simulation", "no-std"]
+
+[dependencies]
+tpt-aero-core = { workspace = true }
+tpt-math-numeric = { workspace = true }
+
+[features]
+default = ["std"]
+std = ["tpt-aero-core/std", "tpt-math-numeric/std"]
+alloc = ["tpt-aero-core/alloc", "tpt-math-numeric/alloc"]
+libm = ["tpt-aero-core/libm", "tpt-math-numeric/libm"]
+
+[lints]
+workspace = true
