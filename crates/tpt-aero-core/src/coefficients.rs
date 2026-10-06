@@ -11,6 +11,7 @@ use tpt_math_units::si::force::newton;
 use tpt_math_units::si::length::meter;
 use tpt_math_units::si::torque::newton_meter;
 
+#[cfg(not(feature = "std"))]
 use crate::num::Real as _;
 
 use crate::quantities::DynamicPressure;

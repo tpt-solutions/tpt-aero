@@ -18,7 +18,9 @@ use tpt_math_autodiff_fwd::Dual;
 /// on the primal value go through [`Real::lt_f`] etc.; methods that are
 /// non-smooth in exact arithmetic (`abs`, `max`, `min`) follow the standard AD
 /// convention of taking the derivative branch of the selected operand.
-pub trait Real: Copy + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> {
+pub trait Real:
+    Copy + 'static + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self>
+{
     /// Additive identity.
     fn zero() -> Self;
     /// Multiplicative identity.

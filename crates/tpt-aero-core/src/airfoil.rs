@@ -2,6 +2,7 @@
 
 use alloc::{string::{String, ToString}, vec::Vec};
 
+#[cfg(not(feature = "std"))]
 use crate::num::Real as _;
 
 /// Error returned by airfoil constructors and parsers.
