@@ -32,7 +32,7 @@
 //!
 //! let p = PlantParameters { v_inf: 50.0, chord: 1.0, area: 10.0, mass: 500.0, inertia_y: 400.0, density: 1.225 };
 //! let plant = LongitudinalPlant::from_derivatives(&d, &p, 0.05);
-//! let (wn, zeta) = plant.short_period();
+//! let (wn, zeta) = plant.short_period().expect("statically stable");
 //! assert!(wn > 0.0 && zeta > 0.0);
 //! ```
 

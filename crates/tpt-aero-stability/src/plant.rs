@@ -8,6 +8,9 @@
 
 use crate::longitudinal::LongitudinalDerivatives;
 
+/// Standard gravity (m/s²).
+const STANDARD_GRAVITY: f64 = 9.80665;
+
 #[allow(unused_imports)]
 use tpt_aero_core::Real as _;
 
@@ -41,14 +44,19 @@ pub struct PlantParameters {
 impl LongitudinalPlant {
     /// Assemble the classical derivative-based longitudinal plant.
     ///
-    /// The heave/pitch (short-period-like) block uses the standard
-    /// quasi-steady relations with the derivatives' dimensionalization
-    /// `q̂ = q c/(2V)`; the speed-damping row uses the simplified drag
-    /// slope `C_{Du}` supplied by the caller (0 if unknown).
+    /// Small-disturbance rigid-body dynamics about level, steady flight
+    /// (`γ₀ = 0`, `θ₀ = α₀`), in wind axes with state `[Δu, Δα, q, Δθ]`:
     ///
-    /// `pitch_damping` multiplies q̇ by `C_{mq}` + `C_{Lα}`-driven pitch
-    /// coupling — pass the raw extracted values via
-    /// [`LongitudinalDerivatives`].
+    /// ```text
+    /// Δu̇ = −(C_Du q̄S/(mV)) Δu − g Δθ
+    /// Δα̇ = q − (q̄S/(mV)) (C_Lα Δα + C_Lq (c/2V) q + C_Lδ Δδ)
+    /// q̇  = (q̄S c/I_y) (C_mα Δα + C_mq (c/2V) q + C_mδ Δδ)
+    /// Δθ̇ = q
+    /// ```
+    ///
+    /// `drag_slope_u` is the caller-supplied `C_{Du}` (0 if unknown). Speed
+    /// effects on lift and pitching moment and the `C_{Dα}` coupling are
+    /// neglected — the usual short-period/phugoid first-order model.
     #[must_use]
     pub fn from_derivatives(
         d: &LongitudinalDerivatives,
@@ -56,45 +64,48 @@ impl LongitudinalPlant {
         drag_slope_u: f64,
     ) -> Self {
         let q_bar_s = 0.5 * p.density * p.v_inf * p.v_inf * p.area;
-        let m_dot = p.mass * p.v_inf;
-        // Δα row: m(V α̇ + u α_trim…) — linearized heave:
-        // m V α̇ = −q S (C_{Lα} V α/V + C_{Lq} c q/(2V)) − m g sinθ ≈
-        // folded into the standard matrix form below.
-        let a_11 = -drag_slope_u * q_bar_s / m_dot;
-        let a_12 = -d.cl_alpha * q_bar_s / m_dot;
-        let a_21 = 0.0; // angle-of-attack equation insensitive to Δu at this order
-        let a_22 = -d.cl_alpha * q_bar_s / m_dot;
-        let q_damp = d.cm_q * q_bar_s * p.chord / (2.0 * p.v_inf) / p.inertia_y * p.chord;
-        let alpha_to_q = d.cm_alpha * q_bar_s * p.chord / p.inertia_y;
+        let mv = p.mass * p.v_inf;
+        let half_c_over_v = p.chord / (2.0 * p.v_inf);
+        let lift_per_alpha = q_bar_s / mv;
+
+        let x_u = -drag_slope_u * lift_per_alpha;
+        let z_alpha = d.cl_alpha * lift_per_alpha;
+        let z_q = d.cl_q * lift_per_alpha * half_c_over_v;
+        let m_scale = q_bar_s * p.chord / p.inertia_y;
+        let m_alpha = d.cm_alpha * m_scale;
+        let m_q = d.cm_q * m_scale * half_c_over_v;
+
         let a: [[f64; 4]; 4] = [
-            [a_11, a_12, 0.0, 0.0],
-            [a_21, a_22, 1.0, 0.0],
-            [0.0, alpha_to_q, q_damp, 0.0],
+            [x_u, 0.0, 0.0, -STANDARD_GRAVITY],
+            [0.0, -z_alpha, 1.0 - z_q, 0.0],
+            [0.0, m_alpha, m_q, 0.0],
             [0.0, 0.0, 1.0, 0.0],
         ];
-        // Control: flap effectiveness drives both lift and pitch.
-        let b_lift = d.cl_delta * q_bar_s / m_dot;
-        let b_pitch = d.cm_delta * q_bar_s * p.area * p.chord / p.inertia_y;
-        let b: [[f64; 1]; 4] = [[b_lift], [0.0], [b_pitch], [0.0]];
+        // Flap/elevator effectiveness: positive δ raises lift (so α̇ falls)
+        // and moves the pitching moment by C_mδ.
+        let b_alpha = -d.cl_delta * lift_per_alpha;
+        let b_pitch = d.cm_delta * m_scale;
+        let b: [[f64; 1]; 4] = [[0.0], [b_alpha], [b_pitch], [0.0]];
         Self { a, b }
     }
 
-    /// Short-period characteristics: natural frequency and damping ratio of
-    /// the (α, q) subsystem — the primary handling metrics.
+    /// Short-period characteristics `(ω_n, ζ)` of the `(α, q)` subsystem —
+    /// the primary handling metrics.
+    ///
+    /// Returns `None` when the subsystem has no oscillatory/stable-pair
+    /// mapping, i.e. `det ≤ 0`: the airframe is statically unstable (a real
+    /// positive root), so `ω_n` and `ζ` are undefined.
     #[must_use]
-    pub fn short_period(&self) -> (f64, f64) {
+    pub fn short_period(&self) -> Option<(f64, f64)> {
         let (a22, a23, a32, a33) = (self.a[1][1], self.a[1][2], self.a[2][1], self.a[2][2]);
         // (α, q) block: λ² − bλ + c = 0 with b = −(a22+a33), c = a22a33 − a23a32.
         let b = -(a22 + a33);
         let c = a22 * a33 - a23 * a32;
-        // Standard second-order mapping (also valid overdamped, ζ > 1).
-        let wn = c.max(0.0).sqrt();
-        let zeta = if wn > 1.0e-9 {
-            b / (2.0 * wn)
-        } else {
-            f64::NAN
-        };
-        (wn, zeta)
+        if c.is_nan() || c <= 0.0 {
+            return None;
+        }
+        let wn = c.sqrt();
+        Some((wn, b / (2.0 * wn)))
     }
 }
 
@@ -150,8 +161,63 @@ mod tests {
             density: 1.225,
         };
         let plant = LongitudinalPlant::from_derivatives(&d, &p, 0.05);
-        let (wn, zeta) = plant.short_period();
+        let (wn, zeta) = plant.short_period().expect("statically stable");
         assert!(wn > 0.0, "ω_n = {wn}");
         assert!(zeta > 0.0, "damping ζ = {zeta} must be positive (stable)");
+    }
+
+    #[test]
+    fn plant_matrix_is_dimensionally_consistent() {
+        let d = LongitudinalDerivatives {
+            cl_alpha: 5.0,
+            cm_alpha: -1.0,
+            cl_q: 3.0,
+            cm_q: -10.0,
+            cl_delta: 2.0,
+            cm_delta: -1.5,
+        };
+        let p = PlantParameters {
+            v_inf: 50.0,
+            chord: 1.0,
+            area: 10.0,
+            mass: 500.0,
+            inertia_y: 400.0,
+            density: 1.225,
+        };
+        let plant = LongitudinalPlant::from_derivatives(&d, &p, 0.1);
+        let q_bar_s = 0.5 * 1.225 * 50.0 * 50.0 * 10.0;
+        // Control effectiveness: S enters once, via q̄S.
+        let b_pitch = -1.5 * q_bar_s * 1.0 / 400.0;
+        assert!((plant.b[2][0] - b_pitch).abs() < 1e-12);
+        // Lift control acts through the α row, with opposite sign.
+        assert_eq!(plant.b[0][0], 0.0);
+        assert!((plant.b[1][0] + 2.0 * q_bar_s / (500.0 * 50.0)).abs() < 1e-12);
+        // Gravity couples pitch attitude into speed.
+        assert!((plant.a[0][3] + 9.80665).abs() < 1e-12);
+        // C_Lq enters the α row's q coupling.
+        let z_q = 3.0 * q_bar_s / (500.0 * 50.0) * 0.01;
+        assert!((plant.a[1][2] - (1.0 - z_q)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn statically_unstable_has_no_short_period() {
+        let d = LongitudinalDerivatives {
+            cl_alpha: 5.0,
+            cm_alpha: 0.5,
+            cl_q: 0.0,
+            cm_q: -10.0,
+            cl_delta: 0.0,
+            cm_delta: 0.0,
+        };
+        let p = PlantParameters {
+            v_inf: 50.0,
+            chord: 1.0,
+            area: 10.0,
+            mass: 500.0,
+            inertia_y: 400.0,
+            density: 1.225,
+        };
+        let plant = LongitudinalPlant::from_derivatives(&d, &p, 0.0);
+        assert!(plant.short_period().is_none());
     }
 }
