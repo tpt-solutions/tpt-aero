@@ -70,3 +70,26 @@ pub use tpt_aero_core::{
 pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
 #[cfg(feature = "vlm")]
 pub use tpt_aero_vlm::{CamberModel, VlmModel, VlmSolution};
+
+/// One-line import of the most common types: `use tpt_aero::prelude::*;`.
+pub mod prelude {
+    #[cfg(feature = "atmo")]
+    pub use tpt_aero_atmo::{isa, IsaState};
+    #[cfg(feature = "core")]
+    pub use tpt_aero_core::{
+        airfoil::{naca4, naca4_closed},
+        AngleOfAttack, DynamicPressure, MachNumber, ReynoldsNumber, Vec3, WingPlanform,
+        WingSection,
+    };
+    #[cfg(feature = "panel")]
+    pub use tpt_aero_panel::{compress, solve_source_panels};
+    #[cfg(feature = "rotor")]
+    pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
+    #[cfg(feature = "stability")]
+    pub use tpt_aero_stability::{
+        longitudinal::{longitudinal_fd, LongitudinalDerivatives},
+        plant::{LongitudinalPlant, PlantParameters},
+    };
+    #[cfg(feature = "vlm")]
+    pub use tpt_aero_vlm::{CamberModel, ReferenceGeometry, VlmModel, VlmSolution};
+}
