@@ -27,6 +27,7 @@ pub struct TrimRequest<'a> {
 
 /// A converged trim point.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Trim {
     /// Angle of attack (rad).
     pub alpha_rad: f64,

@@ -146,6 +146,7 @@ Done:
 - [x] VLM: `prepare`/`solve_sweep` (AIC + LU cached across angles, ~20x), local velocities computed once per solve, criterion benches
 - [x] Closed-loop state feedback (`with_feedback`): yaw damper and pitch-attitude hold examples
 - [x] Linear time-domain simulation (RK4) with elevator/aileron/rudder and gust inputs; FAR 25 gust alleviation check
+- [x] `serde` feature on result and parameter types (no_std + alloc); `derivatives --json`; fixed rotor no_std build and the feature powerset
 - [x] VTK export of lattice + circulation (library and CLI)
 - [x] Phugoid-capable longitudinal plant (Lanchester cross-check) and control derivatives for any named control
 - [x] Level-flight trim solver; lateral plant with Dutch roll / roll subsidence / spiral modes (dihedral stabilizes spiral, trims vs speed/CG behave classically)
@@ -161,7 +162,7 @@ Open:
 - [ ] VLM: opt-in cosine spanwise spacing; wake along freestream
 - [ ] Turn/steady-sideslip trim; nonlinear 6-DOF simulation; integrator/autotrim in the attitude hold; fuselage and propeller effects
 - [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
-- [ ] `serde` feature on result types, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
+- [ ] CLI: rotor/stability subcommands, mdBook, cargo-generate templates
 - [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel
 - [x] `cargo publish --workspace --dry-run` passes for all 9 crates (dependency order handled by cargo)
 - [x] README rewritten; real per-crate READMEs; `docs/CONVENTIONS.md` and `docs/VALIDATION.md`

@@ -1,6 +1,9 @@
 //! Rotor/propeller blade geometry and section aerodynamics.
 
+// Brings the `no_std` float methods (`atan`, `powf`, ...) into scope.
 use alloc::vec::Vec;
+#[allow(unused_imports)]
+use tpt_aero_core::Real as _;
 
 use tpt_aero_core::{AirfoilPolar, StallModel};
 

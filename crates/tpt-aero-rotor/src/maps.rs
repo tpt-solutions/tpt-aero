@@ -1,12 +1,16 @@
 //! Propeller / rotor performance mapping over the advance-ratio axis.
 
+// Brings the `no_std` float methods (`atan`, `powf`, ...) into scope.
 use alloc::vec::Vec;
+#[allow(unused_imports)]
+use tpt_aero_core::Real as _;
 
 use crate::bemt::{BemtSolver, OperatingCondition};
 use crate::blade::RotorError;
 
 /// One point of the performance map.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MapPoint {
     /// Advance ratio `J = V/(nD)` (0 at hover).
     pub j: f64,

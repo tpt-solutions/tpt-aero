@@ -20,6 +20,7 @@ use tpt_aero_vlm::VlmModel;
 
 /// A set of extracted stability derivatives (1/rad units unless noted).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LongitudinalDerivatives {
     /// Lift-curve slope `C_{Lα}`.
     pub cl_alpha: f64,

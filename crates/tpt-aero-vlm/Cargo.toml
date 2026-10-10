@@ -14,16 +14,18 @@ keywords = ["vlm", "aerodynamics", "vortex-lattice", "wing", "no-std"]
 categories = ["science", "aerospace", "no-std"]
 
 [dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
 tpt-aero-core = { workspace = true }
 tpt-math-numeric = { workspace = true }
 tpt-math-linalg-dense = { workspace = true }
 tpt-math-autodiff-fwd = { workspace = true }
 
 [features]
+serde = ["alloc", "dep:serde", "tpt-aero-core/serde"]
 default = ["std"]
 std = ["tpt-aero-core/std", "tpt-math-numeric/std", "tpt-math-linalg-dense/std", "tpt-math-autodiff-fwd/std"]
 alloc = ["tpt-aero-core/alloc", "tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc", "tpt-math-autodiff-fwd/alloc"]
-libm = ["tpt-aero-core/libm", "tpt-math-numeric/libm"]
+libm = ["alloc", "tpt-aero-core/libm", "tpt-math-numeric/libm"]
 
 [dev-dependencies]
 # Dev-only; default features off keeps plotters/rayon out of the tree.

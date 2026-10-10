@@ -14,14 +14,16 @@ keywords = ["atmosphere", "isa", "turbulence", "dryden", "no-std"]
 categories = ["science", "aerospace", "simulation", "no-std"]
 
 [dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
 tpt-aero-core = { workspace = true }
 tpt-math-numeric = { workspace = true }
 
 [features]
+serde = ["alloc", "dep:serde"]
 default = ["std"]
 std = ["tpt-aero-core/std", "tpt-math-numeric/std"]
 alloc = ["tpt-aero-core/alloc", "tpt-math-numeric/alloc"]
-libm = ["tpt-aero-core/libm", "tpt-math-numeric/libm"]
+libm = ["alloc", "tpt-aero-core/libm", "tpt-math-numeric/libm"]
 
 [lints]
 workspace = true

@@ -14,6 +14,7 @@ keywords = ["stability-derivatives", "flight-mechanics", "flight-dynamics", "aer
 categories = ["science", "aerospace", "simulation"]
 
 [dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
 tpt-aero-core = { workspace = true }
 tpt-aero-vlm = { workspace = true }
 tpt-math-autodiff-fwd = { workspace = true }
@@ -21,10 +22,11 @@ tpt-math-numeric = { workspace = true }
 tpt-math-linalg-dense = { workspace = true }
 
 [features]
+serde = ["alloc", "dep:serde", "tpt-aero-core/serde", "tpt-aero-vlm/serde"]
 default = ["std"]
 std = ["tpt-aero-core/std", "tpt-aero-vlm/std", "tpt-math-autodiff-fwd/std", "tpt-math-numeric/std", "tpt-math-linalg-dense/std"]
 alloc = ["tpt-aero-core/alloc", "tpt-aero-vlm/alloc", "tpt-math-autodiff-fwd/alloc", "tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc"]
-libm = ["tpt-aero-core/libm", "tpt-aero-vlm/libm", "tpt-math-numeric/libm"]
+libm = ["alloc", "tpt-aero-core/libm", "tpt-aero-vlm/libm", "tpt-math-numeric/libm"]
 
 [lints]
 workspace = true

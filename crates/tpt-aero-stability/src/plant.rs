@@ -26,6 +26,7 @@ pub struct LongitudinalPlant {
 
 /// Parameters used to dimensionalize the derivative-based plant.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PlantParameters {
     /// Flight speed (m/s).
     pub v_inf: f64,

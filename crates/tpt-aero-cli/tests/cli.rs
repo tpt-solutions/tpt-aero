@@ -1,4 +1,4 @@
-use tpt_aero_cli::{isa_csv, run_derivatives, run_wing, CliError, TEMPLATE};
+use tpt_aero_cli::{isa_csv, run_derivatives, run_derivatives_json, run_wing, CliError, TEMPLATE};
 
 fn rows(csv: &str) -> Vec<Vec<f64>> {
     csv.lines()
@@ -92,4 +92,26 @@ fn vtk_export_contains_the_lattice_and_circulation() {
     assert!(vtk.contains("POINTS 384 float"));
     assert!(vtk.contains("SCALARS gamma float 1"));
     assert!(tpt_aero_cli::run_vtk(TEMPLATE, f64::NAN).is_err());
+}
+
+#[test]
+fn derivatives_json_matches_the_csv_values() {
+    let json: serde_json::Value =
+        serde_json::from_str(&run_derivatives_json(TEMPLATE, 4.0).expect("valid case"))
+            .expect("valid JSON");
+    assert_eq!(json["alpha_deg"], 4.0);
+    assert_eq!(json["speed"], 50.0);
+    let csv = run_derivatives(TEMPLATE, 4.0).unwrap();
+    let csv_value = |name: &str| -> f64 {
+        csv.lines()
+            .find_map(|l| l.strip_prefix(&format!("{name},")))
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let cl_alpha = json["longitudinal"]["cl_alpha"].as_f64().unwrap();
+    assert!((cl_alpha - csv_value("cl_alpha")).abs() < 1e-5);
+    let cl_p = json["lateral"]["cl_p"].as_f64().unwrap();
+    assert!((cl_p - csv_value("cl_p")).abs() < 1e-5);
+    assert!(run_derivatives_json(TEMPLATE, f64::NAN).is_err());
 }

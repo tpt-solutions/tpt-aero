@@ -44,6 +44,7 @@ println!("alpha {:.1} deg, elevator {:.1} deg, Cm_alpha {:.2}",
 | Atmosphere: ISA, wind shear, 1-cos gusts, Dryden / von Karman turbulence | `tpt-aero-atmo` |
 | Gradients through the solver (forward-mode autodiff) | `VlmModel::solve_generic` |
 | Visualize in ParaView: lattice with circulation | `export::to_vtk` |
+| JSON in and out: results, derivative sets, trim, parameters (`--features serde`; use `serde_json` with `float_roundtrip` for bit-exact round trips) | `tpt-aero/serde`, `derivatives --json` |
 
 ## Try it in two minutes
 
@@ -63,7 +64,7 @@ Or without writing Rust, with the `tpt-aero` command (`cargo install --path crat
 ```text
 tpt-aero template wing > wing.toml          # a commented case file
 tpt-aero wing wing.toml --out polar.csv     # alpha sweep to CSV
-tpt-aero derivatives wing.toml --alpha 4    # stability derivatives
+tpt-aero derivatives wing.toml --alpha 4    # stability derivatives (--json for JSON)
 tpt-aero vtk wing.toml --alpha 5 --out lattice.vtk
 tpt-aero isa 0 5000 11000
 ```

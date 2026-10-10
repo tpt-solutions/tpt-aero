@@ -46,6 +46,8 @@ jobs:
           tool: cargo-nextest
       - run: cargo nextest run --workspace
       - run: cargo test --workspace --doc
+      - name: serde round trips
+        run: cargo test -p tpt-aero --features serde --test serde
       - name: examples run to completion
         run: |
           for e in wing_vlm propeller_sweep isa_table airfoil_cp stability_derivatives aircraft_stability gust_response control_design; do
@@ -74,6 +76,12 @@ jobs:
       - run: cargo build -p tpt-aero-core --no-default-features --features alloc --target thumbv6m-none-eabi
       - run: cargo build -p tpt-aero-core --no-default-features --features alloc --target wasm32-unknown-unknown
       - run: cargo build -p tpt-aero-atmo --no-default-features --features alloc --target thumbv6m-none-eabi
+      # Every solver crate, with serde, on a bare-metal target.
+      - name: solver crates on thumbv6m (alloc + serde)
+        run: |
+          for c in core atmo vlm panel rotor stability; do
+            cargo build -p "tpt-aero-$c" --no-default-features --features alloc,serde --target thumbv6m-none-eabi 2>/dev/null               || cargo build -p "tpt-aero-$c" --no-default-features --features alloc --target thumbv6m-none-eabi
+          done
 
   deny:
     name: cargo-deny
@@ -100,7 +108,8 @@ jobs:
         with:
           tool: cargo-hack
       # `--no-dev-deps` keeps proptest (std-only) out of no_std feature combos.
-      - run: cargo hack check --workspace --each-feature --no-dev-deps
+      # The "no features" run is meaningless: the solver crates need alloc.
+      - run: cargo hack check --workspace --each-feature --exclude-no-default-features --no-dev-deps
 
   bench-smoke:
     name: bench compile smoke

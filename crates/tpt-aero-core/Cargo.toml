@@ -14,16 +14,18 @@ keywords = ["aerodynamics", "airfoil", "units", "no-std", "physics"]
 categories = ["science", "aerospace", "no-std"]
 
 [dependencies]
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
 tpt-math-numeric = { workspace = true }
 tpt-math-linalg-dense = { workspace = true }
 tpt-math-units = { workspace = true }
 tpt-math-autodiff-fwd = { workspace = true }
 
 [features]
+serde = ["alloc", "dep:serde"]
 default = ["std"]
 std = ["tpt-math-numeric/std", "tpt-math-linalg-dense/std", "tpt-math-units/std", "tpt-math-autodiff-fwd/std"]
 alloc = ["tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc", "tpt-math-autodiff-fwd/alloc"]
-libm = ["tpt-math-numeric/libm"]
+libm = ["alloc", "tpt-math-numeric/libm"]
 
 [lints]
 workspace = true

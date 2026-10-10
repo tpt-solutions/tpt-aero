@@ -12,6 +12,7 @@ use crate::num::Real;
 
 /// 3-component vector (also used for points, as is customary in aero codes).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Vec3<R: Real = f64> {
     /// x component (aft).
     pub x: R,
@@ -187,6 +188,7 @@ impl SurfacePanel {
 
 /// One span station of a wing planform.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WingSection {
     /// Leading-edge point (body frame).
     pub le: Vec3<f64>,
@@ -213,6 +215,7 @@ impl WingSection {
 /// A wing planform: an ordered list of span stations from one tip to the
 /// other (monotone in `y`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct WingPlanform {
     sections: Vec<WingSection>,
 }

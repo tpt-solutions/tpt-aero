@@ -23,15 +23,23 @@ tpt-aero-stability = { workspace = true, optional = true }
 tpt-aero-verify = { workspace = true, optional = true }
 
 [features]
+# Serialize/Deserialize on result and parameter types.
+serde = [
+    "tpt-aero-core?/serde",
+    "tpt-aero-vlm?/serde",
+    "tpt-aero-rotor?/serde",
+    "tpt-aero-atmo?/serde",
+    "tpt-aero-stability?/serde",
+]
 default = ["core", "vlm", "panel", "rotor", "atmo", "stability", "std"]
-core = ["dep:tpt-aero-core"]
-vlm = ["dep:tpt-aero-vlm"]
-panel = ["dep:tpt-aero-panel"]
-rotor = ["dep:tpt-aero-rotor"]
-atmo = ["dep:tpt-aero-atmo"]
-stability = ["dep:tpt-aero-stability"]
+core = ["dep:tpt-aero-core", "tpt-aero-core/alloc"]
+vlm = ["dep:tpt-aero-vlm", "tpt-aero-vlm/alloc"]
+panel = ["dep:tpt-aero-panel", "tpt-aero-panel/alloc"]
+rotor = ["dep:tpt-aero-rotor", "tpt-aero-rotor/alloc"]
+atmo = ["dep:tpt-aero-atmo", "tpt-aero-atmo/alloc"]
+stability = ["dep:tpt-aero-stability", "tpt-aero-stability/alloc"]
 # Verification harnesses are opt-in (they pull the std-only proptest stack).
-verify = ["dep:tpt-aero-verify"]
+verify = ["dep:tpt-aero-verify", "tpt-aero-verify/std"]
 std = [
     "tpt-aero-core?/std",
     "tpt-aero-vlm?/std",
@@ -56,6 +64,10 @@ libm = [
     "tpt-aero-atmo?/libm",
     "tpt-aero-stability?/libm",
 ]
+
+[dev-dependencies]
+serde = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [lints]
 workspace = true

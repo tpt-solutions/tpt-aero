@@ -12,13 +12,17 @@
 //!   the physical bound `0 ≤ λ_i ≤ 1` every step (Kani-harness target: the
 //!   iteration cannot leave `[0, 1]`).
 
+// Brings the `no_std` float methods (`atan`, `powf`, ...) into scope.
 use alloc::vec::Vec;
+#[allow(unused_imports)]
+use tpt_aero_core::Real as _;
 
 use crate::blade::{RotorError, RotorGeometry, SectionModel};
 use crate::loss::{HubLoss, TipLoss};
 
 /// Axial operating condition.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OperatingCondition {
     /// Axial flow speed (m/s). Positive = climb / propeller inflow; zero =
     /// hover; small negative = incipient descent.
@@ -46,6 +50,7 @@ impl OperatingCondition {
 
 /// Per-annulus result of the BEMT solve.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SectionResult {
     /// Span fraction `x = r/R`.
     pub r_frac: f64,
@@ -72,7 +77,8 @@ pub struct SectionResult {
 }
 
 /// Aggregate rotor loads in coefficient form.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RotorLoads {
     /// Thrust coefficient `C_T = T/(ρ A (ΩR)²)`.
     pub ct: f64,
@@ -88,6 +94,7 @@ pub struct RotorLoads {
 
 /// Full BEMT solution: aggregate loads plus per-annulus detail.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BemtSolution {
     /// Aggregate thrust/torque/power coefficients.
     pub loads: RotorLoads,
@@ -179,7 +186,7 @@ impl BemtSolver {
 
             let (lambda_i, iters) = self.solve_annulus(x, sigma_r, theta, lambda_c)?;
             let lambda_tot = (lambda_c + lambda_i).max(0.0);
-            let phi = (lambda_tot / x).atan();
+            let phi = lambda_tot.atan2(x);
             let alpha = theta - phi;
             let (cl, cd) = self.section.coefficients(alpha);
             let w2 = lambda_tot * lambda_tot + x * x;
@@ -369,7 +376,7 @@ fn solve_induction_counted(
 ) -> Option<(f64, usize)> {
     let residual = |lambda_i: f64| -> Option<f64> {
         let lambda_tot = (lambda_c + lambda_i).max(0.0);
-        let phi = (lambda_tot / x).atan();
+        let phi = lambda_tot.atan2(x);
         let alpha = theta - phi;
         let (cl, cd) = coefficients(alpha);
         if !(cl.is_finite() && cd.is_finite()) {

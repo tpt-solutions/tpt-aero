@@ -25,6 +25,7 @@ const GRAVITY: f64 = 9.80665;
 
 /// Flight condition and mass properties for [`FullLongitudinalPlant`].
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FullLongitudinalParameters {
     /// Trim airspeed (m/s).
     pub v_inf: f64,
@@ -75,6 +76,7 @@ pub struct FullLongitudinalPlant {
 
 /// The two classical longitudinal oscillations.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LongitudinalModes {
     /// Short-period natural frequency (rad/s).
     pub short_period_wn: f64,

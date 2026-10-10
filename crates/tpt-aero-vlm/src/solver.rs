@@ -63,6 +63,7 @@ impl From<SolveError> for VlmError {
 
 /// Reference quantities used to normalize forces into coefficients.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ReferenceGeometry {
     /// Reference planform area (m²).
     pub area: f64,
@@ -120,6 +121,7 @@ impl ReferenceGeometry {
 /// −2.077° thin-airfoil), so small-|C_L| results near that angle carry that
 /// offset.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VlmSolution {
     /// Total lift coefficient.
     pub cl: f64,
@@ -181,6 +183,7 @@ pub struct VlmSolutionFields<R: Real> {
 /// the **stability axes** (body axes rotated by `alpha` about `y`), the
 /// convention of stability derivatives.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FlightState {
     /// Angle of attack (rad).
     pub alpha: f64,
@@ -199,6 +202,7 @@ pub struct FlightState {
 /// positive to the right, roll moment positive right-wing-down, pitch
 /// positive nose-up, yaw positive nose-right.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateLoads {
     /// Lift coefficient (normal to the relative wind, in the plane of symmetry).
     pub c_lift: f64,

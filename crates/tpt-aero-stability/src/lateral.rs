@@ -23,6 +23,7 @@ use tpt_aero_core::Real as _;
 
 /// Lateral-directional derivative set (per rad, or per unit non-dimensional rate).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LateralDerivatives {
     /// Side force due to sideslip, `C_{Yβ}`.
     pub cy_beta: f64,
@@ -126,6 +127,7 @@ pub fn lateral_fd(
 
 /// Mass properties and flight condition for dimensionalizing the lateral plant.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LateralParameters {
     /// True airspeed (m/s).
     pub v_inf: f64,
@@ -297,6 +299,7 @@ impl LateralPlant {
 
 /// The classical lateral-directional modes of a [`LateralPlant`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LateralModes {
     /// Dutch-roll natural frequency (rad/s).
     pub dutch_roll_wn: f64,

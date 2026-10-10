@@ -2,13 +2,13 @@
 
 use std::process::ExitCode;
 
-use tpt_aero_cli::{isa_csv, run_derivatives, run_vtk, run_wing, TEMPLATE};
+use tpt_aero_cli::{isa_csv, run_derivatives, run_derivatives_json, run_vtk, run_wing, TEMPLATE};
 
 const USAGE: &str = "tpt-aero - aerodynamics from the command line
 
 USAGE:
     tpt-aero wing <case.toml> [--out <file.csv>]   run an alpha sweep (CSV to stdout by default)
-    tpt-aero derivatives <case.toml> [--alpha <deg>]   stability derivatives (default alpha 2)
+    tpt-aero derivatives <case.toml> [--alpha <deg>] [--json]   stability derivatives (default alpha 2)
     tpt-aero vtk <case.toml> [--alpha <deg>] [--out <file.vtk>]   lattice + circulation for ParaView
     tpt-aero template wing                         print a commented case file
     tpt-aero isa <altitude_m>...                   ISA properties as CSV
@@ -71,22 +71,31 @@ fn run(args: &[String]) -> Result<(), String> {
         Some("derivatives") => {
             let path = args
                 .get(1)
-                .ok_or("usage: tpt-aero derivatives <case.toml> [--alpha <deg>]")?;
-            let alpha = match args.get(2).map(String::as_str) {
-                None => 2.0,
-                Some("--alpha") => args
-                    .get(3)
-                    .ok_or("--alpha needs a value in degrees")?
-                    .parse::<f64>()
-                    .map_err(|_| "--alpha must be a number".to_string())?,
-                Some(other) => return Err(format!("unexpected argument: {other}")),
-            };
+                .ok_or("usage: tpt-aero derivatives <case.toml> [--alpha <deg>] [--json]")?;
+            let (mut alpha, mut json) = (2.0, false);
+            let mut rest = args[2..].iter();
+            while let Some(flag) = rest.next() {
+                match flag.as_str() {
+                    "--json" => json = true,
+                    "--alpha" => {
+                        alpha = rest
+                            .next()
+                            .ok_or("--alpha needs a value in degrees")?
+                            .parse::<f64>()
+                            .map_err(|_| "--alpha must be a number".to_string())?;
+                    }
+                    other => return Err(format!("unexpected argument: {other}")),
+                }
+            }
             let text =
                 std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-            print!(
-                "{}",
-                run_derivatives(&text, alpha).map_err(|e| e.to_string())?
-            );
+            let out = if json {
+                run_derivatives_json(&text, alpha)
+            } else {
+                run_derivatives(&text, alpha)
+            }
+            .map_err(|e| e.to_string())?;
+            println!("{}", out.trim_end());
             Ok(())
         }
         Some("isa") => {

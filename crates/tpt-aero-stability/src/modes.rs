@@ -10,6 +10,7 @@ use tpt_aero_core::Real as _;
 
 /// A complex number (real, imaginary).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Complex {
     /// Real part.
     pub re: f64,

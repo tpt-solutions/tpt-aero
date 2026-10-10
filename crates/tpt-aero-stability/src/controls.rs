@@ -12,6 +12,7 @@ use tpt_aero_vlm::{VlmError, VlmModel};
 /// command yaws right. The aircraft-standard `C_{lδa}` and `C_{nδr}` are the
 /// negatives of the fields below for those two controls.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ControlDerivatives {
     /// Lift, `∂C_L/∂δ`.
     pub cl: f64,

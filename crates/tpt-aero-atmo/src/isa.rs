@@ -18,6 +18,7 @@ impl core::fmt::Display for IsaError {
 
 /// One atmospheric state point.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct IsaState {
     /// Temperature (K).
     pub temperature: f64,

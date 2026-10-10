@@ -1,6 +1,10 @@
 //! Inflow models beyond steady axial BEMT: skewed wake modulation and
 //! first-order dynamic inflow (Pitt–Peters axial mode).
 
+// Brings the `no_std` float methods (`atan`, `powf`, ...) into scope.
+#[allow(unused_imports)]
+use tpt_aero_core::Real as _;
+
 /// Skewed-wake inflow modulation for oblique inflow (forward flight,
 /// helicopter/VTOL transitions).
 ///

@@ -16,6 +16,7 @@ use crate::solver::{ReferenceGeometry, VlmError, VlmModel};
 
 /// How a control surface's two halves move together.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ControlSymmetry {
     /// Both halves deflect the same way (elevator, flap, rudder).
     Symmetric,
@@ -41,6 +42,7 @@ pub enum ControlSymmetry {
 ///   yawing **right**; the aircraft-standard positive rudder (trailing edge
 ///   left, nose left) is a **negative** command here.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Control {
     /// Name used to look the control up (e.g. `"elevator"`).
     pub name: String,

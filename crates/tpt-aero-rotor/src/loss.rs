@@ -1,5 +1,9 @@
 //! Rotor loss models: tip and hub corrections to the momentum theory.
 
+// Brings the `no_std` float methods (`atan`, `powf`, ...) into scope.
+#[allow(unused_imports)]
+use tpt_aero_core::Real as _;
+
 /// Tip-loss model applied to the momentum (induced) term of BEMT.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TipLoss {

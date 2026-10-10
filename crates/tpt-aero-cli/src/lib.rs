@@ -265,16 +265,7 @@ pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
 /// # Errors
 /// [`CliError`] for a malformed case or a failed solve.
 pub fn run_derivatives(case_toml: &str, alpha_deg: f64) -> Result<String, CliError> {
-    let Built {
-        model,
-        speed,
-        density,
-        ..
-    } = build(case_toml)?;
-    let alpha = finite("alpha", alpha_deg)?.to_radians();
-    let long = longitudinal_fd(&model, alpha, speed, density, 1.0e-4);
-    let lat =
-        lateral_fd(&model, alpha, speed, density).map_err(|e| CliError::Solve(e.to_string()))?;
+    let (_, _, long, lat) = derivative_sets(case_toml, alpha_deg)?;
     let rows = [
         ("cl_alpha", long.cl_alpha),
         ("cm_alpha", long.cm_alpha),
@@ -295,6 +286,40 @@ pub fn run_derivatives(case_toml: &str, alpha_deg: f64) -> Result<String, CliErr
         out.push_str(&format!("{name},{value:.6}\n"));
     }
     Ok(out)
+}
+
+fn derivative_sets(
+    case_toml: &str,
+    alpha_deg: f64,
+) -> Result<(f64, f64, LongitudinalDerivatives, LateralDerivatives), CliError> {
+    let Built {
+        model,
+        speed,
+        density,
+        ..
+    } = build(case_toml)?;
+    let alpha = finite("alpha", alpha_deg)?.to_radians();
+    let long = longitudinal_fd(&model, alpha, speed, density, 1.0e-4);
+    let lat =
+        lateral_fd(&model, alpha, speed, density).map_err(|e| CliError::Solve(e.to_string()))?;
+    Ok((speed, density, long, lat))
+}
+
+/// As [`run_derivatives`], as pretty-printed JSON with the flight condition
+/// and the `longitudinal` and `lateral` derivative sets (full precision).
+///
+/// # Errors
+/// [`CliError`] for a malformed case or a failed solve.
+pub fn run_derivatives_json(case_toml: &str, alpha_deg: f64) -> Result<String, CliError> {
+    let (speed, density, long, lat) = derivative_sets(case_toml, alpha_deg)?;
+    let value = serde_json::json!({
+        "alpha_deg": alpha_deg,
+        "speed": speed,
+        "density": density,
+        "longitudinal": long,
+        "lateral": lat,
+    });
+    serde_json::to_string_pretty(&value).map_err(|e| CliError::Solve(e.to_string()))
 }
 
 /// Solve one angle of attack of the case's wing and render the lattice with

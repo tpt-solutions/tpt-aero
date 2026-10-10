@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- Optional `serde` feature (`tpt-aero/serde`, per crate) on results, parameters and derivative sets; JSON round trips are exact with `serde_json`'s `float_roundtrip`. `WingPlanform` is serialize-only (deserialize through the validating constructors).
+- `tpt-aero derivatives case.toml --json`.
 - Documentation: rewritten README, per-crate READMEs, `docs/CONVENTIONS.md` (frames, signs, control sense) and `docs/VALIDATION.md` (what is checked against what, and known weaknesses); whole-aircraft doctest in the umbrella crate.
 - `StateSpace::with_feedback` / `eigenvalues` for closed-loop analysis; `control_design` example (yaw damper cuts the ringing yaw rate ~9x and stabilizes the spiral; pitch-attitude hold gives ~1 s rise with no overshoot).
 - `sim`: RK4 `StateSpace` simulation; `FullLongitudinalPlant::state_space` (elevator + vertical gust inputs) and `LateralPlant::state_space` (aileron, rudder, sidewash). Phugoid period/decay, Dutch roll, steady updraft alignment and roll-rate balance verified in the time domain; 1-cos gust alleviation matches FAR 25 Kg within 5% at 12.5 chords.
@@ -38,6 +40,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tpt_aero::prelude`; examples `isa_table`, `airfoil_cp`, `stability_derivatives`.
 
 ### Fixed
+- `tpt-aero-rotor` did not build without `std` (float methods were not in scope); it now builds for thumbv6m.
+- Feature wiring: `libm`, `serde` and the umbrella sub-crate features now imply `alloc`; umbrella `verify` enables the verify crate's `std`. The full feature powerset (52 combinations) now compiles.
 - **`solve_state` moments and rates are now about stability axes** (body axes rotated by alpha), the convention of stability derivatives. Roll and yaw previously mixed by alpha; found by comparing aileron adverse yaw against lifting-line theory (the sign was wrong in body axes). Lateral derivatives change slightly at non-zero alpha.
 - **`WingSection::twist` was ignored by the VLM solvers** (only the per-solve `twists` slice was applied). Effective twist is now section twist plus the slice.
 - **`WingPlanform::tapered` built a skewed, non-symmetric wing** (one segment from the left tip to the right tip), so any taper, sweep or dihedral broke mirror symmetry. It now builds three sections (tip, root, tip) with V-dihedral. Results for tapered, swept or dihedral wings change.
