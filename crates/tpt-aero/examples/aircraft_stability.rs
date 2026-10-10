@@ -1,6 +1,7 @@
 //! A complete light-aircraft configuration (wing + tailplane + fin): neutral
-//! point and static margin, the full set of stability derivatives, and the
-//! short-period mode as the centre of gravity moves.
+//! point and static margin, the full set of stability derivatives, the
+//! short-period mode as the centre of gravity moves, level-flight trim across
+//! speed, and the lateral-directional modes with and without dihedral.
 //!
 //! Wing-and-tail only (no fuselage or propeller effects), so the numbers are
 //! indicative, not a substitute for a flight-test-validated model.
@@ -23,10 +24,13 @@ fn fin_planform(height: f64, root: f64, tip: f64) -> WingPlanform {
 fn main() {
     let (v, rho, alpha) = (50.0, 1.225, 3.0_f64.to_radians());
     let wing = WingPlanform::rectangular(10.0, 1.2);
-    let build = |x_cg_over_c: f64| {
+    let build = |x_cg_over_c: f64| build_with(&wing, x_cg_over_c);
+    fn build_with(wing: &WingPlanform, x_cg_over_c: f64) -> VlmModel {
         VlmModel::from_surfaces(&[
             Surface::horizontal(wing.clone(), 20, 3),
-            Surface::horizontal(WingPlanform::rectangular(4.0, 0.6), 10, 3).at(4.0, 0.0, 0.0),
+            Surface::horizontal(WingPlanform::rectangular(4.0, 0.6), 10, 3)
+                .at(4.0, 0.0, 0.0)
+                .with_control("elevator", 0.6, 0.0, 2.0, ControlSymmetry::Symmetric),
             Surface::vertical(fin_planform(1.5, 0.9, 0.5), 6, 3).at(3.8, 0.0, 0.0),
         ])
         .expect("valid configuration")
@@ -36,7 +40,7 @@ fn main() {
             span: wing.span(),
             moment_center: Vec3::new(x_cg_over_c * wing.mac(), 0.0, 0.0),
         })
-    };
+    }
 
     let model = build(0.25);
     let d = longitudinal_fd(&model, alpha, v, rho, 1e-4);
@@ -96,5 +100,73 @@ fn main() {
                 "-"
             ),
         }
+    }
+
+    println!(
+        "
+Level-flight trim (600 kg, CG at 25 % MAC, CD0 = 0.03):"
+    );
+    println!(
+        "{:>8} {:>10} {:>12} {:>10} {:>11}",
+        "V [m/s]", "alpha [deg]", "elevator [deg]", "CL", "thrust [N]"
+    );
+    let trim_model = build(0.25);
+    for speed in [35.0, 45.0, 55.0, 70.0] {
+        let req = TrimRequest {
+            weight_n: 600.0 * 9.80665,
+            v_inf: speed,
+            density: rho,
+            elevator: "elevator",
+            cd0: 0.03,
+        };
+        match trim_level_flight(&trim_model, &req) {
+            Ok(t) => println!(
+                "{speed:>8.0} {:>10.2} {:>12.2} {:>10.3} {:>11.0}",
+                t.alpha_rad.to_degrees(),
+                t.elevator_rad.to_degrees(),
+                t.cl,
+                t.thrust_n
+            ),
+            Err(e) => println!("{speed:>8.0}  trim failed: {e}"),
+        }
+    }
+
+    println!(
+        "
+Lateral-directional modes at 50 m/s (I_x 1000, I_z 1800 kg m^2):"
+    );
+    println!(
+        "{:>12} {:>9} {:>9} {:>14} {:>16}",
+        "dihedral", "DR wn", "DR zeta", "roll tau [s]", "spiral"
+    );
+    for dihedral in [0.0_f64, 3.0, 6.0] {
+        let planform = WingPlanform::tapered(10.0, 1.2, 1.2, 0.0, dihedral.to_radians());
+        let m = build_with(&planform, 0.25);
+        let d = lateral_fd(&m, alpha, v, rho).expect("solvable");
+        let params = LateralParameters {
+            v_inf: v,
+            span: m.reference().span,
+            area: m.reference().area,
+            density: rho,
+            mass: 600.0,
+            inertia_x: 1000.0,
+            inertia_z: 1800.0,
+            inertia_xz: 0.0,
+        };
+        let modes = LateralPlant::from_derivatives(&d, &params)
+            .and_then(|p| p.modes())
+            .expect("standard spectrum");
+        let spiral = match modes.spiral_time_to_double() {
+            Some(t) => format!("doubles in {t:.0} s"),
+            None => "stable".to_string(),
+        };
+        println!(
+            "{:>10.0} deg {:>8.2} {:>9.2} {:>14.3} {:>16}",
+            dihedral,
+            modes.dutch_roll_wn,
+            modes.dutch_roll_zeta,
+            modes.roll_time_constant().unwrap_or(f64::NAN),
+            spiral
+        );
     }
 }

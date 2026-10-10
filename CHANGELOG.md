@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- `tpt_aero_stability::trim::trim_level_flight`: Newton trim of angle of attack and elevator for level flight (plus thrust required).
+- `LateralPlant`/`LateralParameters`/`LateralModes`: lateral-directional state-space plant `[beta, p, r, phi]` with Dutch-roll, roll-subsidence and spiral modes; `modes::eigenvalues4` (no-dependency 4x4 eigenvalues).
 - Control surfaces: `Surface::with_control`, `VlmModel::controls`/`control_index`/`control_twists` (elevator, aileron, rudder as incidence changes aft of a hinge), `VlmSolution::stability_roll_yaw`. Aileron roll authority and adverse yaw validated against lifting line.
 - Multi-surface aircraft: `Surface` (`horizontal`, `vertical`, `.at`, `.with_incidence`, `.with_camber`) and `VlmModel::from_surfaces` for wing + tailplane + fin with shared downwash/sidewash; `Lattice::combine` and `Lattice::transformed`.
 - Lifting-line validation for tapered wings (CL within 4%, loading within 7%, Oswald e within 5%).
