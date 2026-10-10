@@ -260,10 +260,13 @@ impl WingPlanform {
         }
     }
 
-    /// Symmetric trapezoidal wing centred on `y = 0`.
+    /// Symmetric trapezoidal wing centred on `y = 0`: three sections (left
+    /// tip, root, right tip), so both semi-spans taper, sweep and rise
+    /// identically.
     ///
-    /// `sweep_le` is the aft offset of the tip leading edge relative to the
-    /// root leading edge; `dihedral` raises (+) the tips in z.
+    /// `sweep_le` is the aft offset of each tip leading edge relative to the
+    /// root leading edge (m); `dihedral` (rad) raises (+) both tips in z (a
+    /// V-dihedral).
     #[must_use]
     pub fn tapered(
         span: f64,
@@ -277,7 +280,12 @@ impl WingPlanform {
         Self {
             sections: vec![
                 WingSection {
-                    le: Vec3::new(0.0, -half, -dz),
+                    le: Vec3::new(sweep_le, -half, dz),
+                    chord: tip_chord,
+                    twist: 0.0,
+                },
+                WingSection {
+                    le: Vec3::new(0.0, 0.0, 0.0),
                     chord: root_chord,
                     twist: 0.0,
                 },
@@ -448,8 +456,27 @@ mod tests {
         // only when there is no dihedral.
         let flat = WingPlanform::tapered(10.0, 2.0, 1.0, 0.5, 0.0);
         let panels = flat.surface_panels();
-        assert_eq!(panels.len(), 1);
-        assert!((panels[0].area() - flat.area()).abs() < 1e-9);
+        assert_eq!(panels.len(), 2, "one panel per semi-span");
+        let total: f64 = panels.iter().map(|p| p.area()).sum();
+        assert!((total - flat.area()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tapered_wing_is_mirror_symmetric() {
+        let w = WingPlanform::tapered(10.0, 2.0, 1.0, 0.5, 0.1);
+        let s = w.sections();
+        assert_eq!(s.len(), 3);
+        // Root at y = 0 with the root chord; both tips mirror each other.
+        assert_eq!(s[1].le.y, 0.0);
+        assert_eq!(s[1].chord, 2.0);
+        assert_eq!(s[0].chord, 1.0);
+        assert_eq!(s[2].chord, 1.0);
+        assert_eq!(s[0].le.y, -s[2].le.y);
+        assert_eq!(s[0].le.x, s[2].le.x);
+        assert_eq!(s[0].le.z, s[2].le.z);
+        assert!((s[2].le.z - 5.0 * 0.1_f64.tan()).abs() < 1e-12);
+        // The planform mean chord and the MAC lie between tip and root chord.
+        assert!(w.mac() > 1.0 && w.mac() < 2.0);
     }
 
     #[test]
@@ -459,7 +486,10 @@ mod tests {
         assert_eq!(s.len(), 9);
         assert!((s[0].le.y - -5.0).abs() < 1e-12);
         assert!((s[8].le.y - 5.0).abs() < 1e-12);
-        assert!((s[4].chord - 1.5).abs() < 1e-12);
+        // The centre station is the root; the tips carry the tip chord.
+        assert!((s[4].chord - 2.0).abs() < 1e-12);
+        assert!((s[0].chord - 1.0).abs() < 1e-12 && (s[8].chord - 1.0).abs() < 1e-12);
+        assert!((s[0].le.z - 5.0 * 0.1_f64.tan()).abs() < 1e-12);
         assert!((s[8].le.z - 5.0 * 0.1_f64.tan()).abs() < 1e-12);
     }
 
