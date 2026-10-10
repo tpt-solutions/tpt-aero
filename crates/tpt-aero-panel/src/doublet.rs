@@ -1,21 +1,20 @@
-//! 2-D lifting flow: constant-strength doublet panels with a Kutta
-//! condition.
+//! 2-D lifting flow: Hess–Smith source panels plus a single circulation
+//! vortex, closed by a trailing-edge Kutta condition.
 //!
-//! Implementation note: by the doublet–vortex identity a constant-strength
-//! doublet sheet of strength µ is equivalent to a vortex sheet of the same
-//! strength, so the solver uses the classic constant-strength vortex-panel
-//! formulation (Kuethe & Chow, ch. 5): unknown panel vorticity, flow
-//! tangency at the midpoints, and a trailing-edge Kutta condition
-//! (equal upper/lower tangential velocity). The finite-segment induction
-//! kernel is the validated 3-D Biot–Savart segment from `tpt-aero-vlm`
-//! restricted to the plane.
+//! Implementation note: this is the classic 1966 Hess–Smith lifting
+//! formulation, *not* a doublet-panel method. The unknowns are one constant
+//! source strength per panel (thickness and incidence response) and one
+//! global circulation carried by a point vortex at the contour centroid.
+//! Equations: flow tangency at every panel midpoint, plus the Kutta condition
+//! that the tangential velocities on the two panels meeting at the trailing
+//! edge are equal and opposite. The module keeps its historical name.
 
 use alloc::vec;
 use alloc::vec::Vec;
 
 use tpt_aero_vlm::lu_solve;
 
-use crate::source::{PanelError, Point2};
+use crate::source::{signed_area2, PanelError, Point2};
 
 #[allow(unused_imports)]
 use tpt_aero_core::Real as _;
@@ -37,14 +36,17 @@ pub struct DoubletSolution {
 
 /// Solve the constant-strength doublet/vortex-panel system.
 ///
-/// * `points`: closed contour vertices; the contour must start and end at
-///   the trailing edge (first vertex = last vertex position) and be ordered
-///   along the surface (upper from TE to LE, lower from LE to TE).
+/// * `points`: contour vertices, counter-clockwise: start at the trailing
+///   edge, run along the upper surface to the leading edge, then back along
+///   the lower surface. The contour closes implicitly from the last vertex to
+///   the first, so do **not** repeat the first vertex at the end; the Kutta
+///   condition uses the first and last panels, which meet at the TE.
 /// * `alpha_rad`: angle of attack.
 /// * `v_inf`: freestream speed; `chord`: reference chord.
 ///
 /// # Errors
 /// [`PanelError::InvalidGeometry`] for degenerate contours,
+/// [`PanelError::ClockwiseContour`] if the contour is ordered clockwise,
 /// [`PanelError::Singular`] if the influence system is singular.
 pub fn solve_doublet_panels(
     points: &[Point2],
@@ -55,6 +57,9 @@ pub fn solve_doublet_panels(
     let n = points.len();
     if n < 4 {
         return Err(PanelError::InvalidGeometry);
+    }
+    if signed_area2(points) <= 0.0 {
+        return Err(PanelError::ClockwiseContour);
     }
     let mut x = Vec::with_capacity(n);
     let mut y = Vec::with_capacity(n);
@@ -293,6 +298,16 @@ mod tests {
         let max_cp = sol.cp.iter().fold(f64::NEG_INFINITY, |m, &c| m.max(c));
         assert!(max_cp > 0.5, "max cp {max_cp}");
         assert!(sol.cp.iter().all(|&c| c.is_finite() && c < 1.0 + 1e-9));
+    }
+
+    #[test]
+    fn rejects_clockwise_contour() {
+        let mut pts = symmetric_airfoil(24);
+        pts.reverse();
+        assert_eq!(
+            solve_doublet_panels(&pts, 0.0, 1.0, 1.0).unwrap_err(),
+            PanelError::ClockwiseContour
+        );
     }
 
     #[test]

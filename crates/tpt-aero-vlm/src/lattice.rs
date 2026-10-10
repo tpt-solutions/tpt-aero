@@ -191,10 +191,9 @@ pub struct Lattice {
 impl Lattice {
     /// Build a lattice from a planform.
     ///
-    /// `n_span` strips spanwise (cosine clustered toward the tips),
-    /// `n_chord` panels chordwise (cosine clustered at leading/trailing
-    /// edges). Cosine clustering keeps the quarter-chord line dense where the
-    /// load gradient is largest.
+    /// `n_span` strips spanwise (uniform in *y*), `n_chord` panels chordwise
+    /// (cosine clustered at leading/trailing edges, which keeps the
+    /// quarter-chord line dense where the load gradient is largest).
     ///
     /// # Errors
     /// [`LatticeError::InvalidResolution`] if either count is zero,

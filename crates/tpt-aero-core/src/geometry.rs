@@ -3,7 +3,8 @@
 //! Body frame convention (used across tpt-aero): *x* aft along the chord,
 //! *y* out the right wing, *z* up. Leading edges sit at smaller `x` than
 //! trailing edges. The freestream at angle of attack α flows as
-//! `V·(cos α, 0, −sin α)` — positive α pitches the nose up into the wind.
+//! `V·(cos α, 0, +sin α)` — positive α pitches the nose up, so the relative
+//! wind arrives from below and moves up through the body frame.
 
 use alloc::{vec, vec::Vec};
 
@@ -335,6 +336,9 @@ impl WingPlanform {
 
     /// Insert `n` evenly *y*-spaced stations by linear interpolation between
     /// the given sections (a lattice generator's first step).
+    ///
+    /// # Panics
+    /// If `n < 2` (a planform always has at least two sections).
     #[must_use]
     pub fn refine(&self, n: usize) -> Self {
         assert!(n >= 2, "refine needs at least 2 stations");

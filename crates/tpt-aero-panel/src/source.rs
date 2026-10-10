@@ -15,6 +15,9 @@ pub enum PanelError {
     Singular,
     /// Geometry needs at least 3 distinct points forming a closed contour.
     InvalidGeometry,
+    /// The contour is ordered clockwise; exterior-flow panels need
+    /// counter-clockwise ordering (outward normals).
+    ClockwiseContour,
 }
 
 impl core::fmt::Display for PanelError {
@@ -23,6 +26,9 @@ impl core::fmt::Display for PanelError {
             PanelError::Singular => write!(f, "panel influence matrix is singular"),
             PanelError::InvalidGeometry => {
                 write!(f, "need ≥3 distinct points forming a closed contour")
+            }
+            PanelError::ClockwiseContour => {
+                write!(f, "contour must be ordered counter-clockwise")
             }
         }
     }
@@ -33,6 +39,19 @@ use tpt_aero_core::Real as _;
 
 /// A 2-D point (x, y).
 pub type Point2 = (f64, f64);
+
+/// Twice the signed area of the implicitly closed contour (shoelace);
+/// positive for counter-clockwise ordering.
+pub(crate) fn signed_area2(points: &[Point2]) -> f64 {
+    let n = points.len();
+    (0..n)
+        .map(|i| {
+            let (x1, y1) = points[i];
+            let (x2, y2) = points[(i + 1) % n];
+            x1 * y2 - x2 * y1
+        })
+        .sum()
+}
 
 /// Result of a source-panel analysis.
 #[derive(Debug, Clone)]
@@ -56,7 +75,12 @@ pub struct SourceSolution {
 ///
 /// # Errors
 /// [`PanelError::InvalidGeometry`] for degenerate contours,
+/// [`PanelError::ClockwiseContour`] if the contour is ordered clockwise,
 /// [`PanelError::Singular`] if the influence system is singular.
+///
+/// For airfoils use a closed trailing edge (e.g. `naca4_closed`): across an
+/// open trailing-edge gap the constant-source model produces meaningless
+/// pressures on the panels that bridge it.
 pub fn solve_source_panels(
     points: &[Point2],
     alpha_rad: f64,
@@ -65,6 +89,9 @@ pub fn solve_source_panels(
     let n = points.len();
     if n < 3 {
         return Err(PanelError::InvalidGeometry);
+    }
+    if signed_area2(points) <= 0.0 {
+        return Err(PanelError::ClockwiseContour);
     }
     // Panel geometry: endpoints, midpoint, outward normal, length.
     let mut mid = Vec::with_capacity(n);

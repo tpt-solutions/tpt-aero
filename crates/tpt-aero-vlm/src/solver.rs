@@ -31,6 +31,8 @@ pub enum VlmError {
     SingularAic,
     /// Dimension mismatch (e.g. twist vector length ≠ element count).
     DimensionMismatch,
+    /// Non-finite angle of attack, or non-positive/non-finite speed or density.
+    InvalidFlightCondition,
 }
 
 impl core::fmt::Display for VlmError {
@@ -41,6 +43,10 @@ impl core::fmt::Display for VlmError {
             VlmError::DimensionMismatch => {
                 write!(f, "twist vector length must equal element count")
             }
+            VlmError::InvalidFlightCondition => write!(
+                f,
+                "angle of attack must be finite; speed and density must be finite and positive"
+            ),
         }
     }
 }
@@ -315,6 +321,14 @@ impl VlmModel {
         density: f64,
         twists: &[f64],
     ) -> Result<VlmSolution, VlmError> {
+        if !(alpha_rad.is_finite()
+            && v_inf.is_finite()
+            && v_inf > 0.0
+            && density.is_finite()
+            && density > 0.0)
+        {
+            return Err(VlmError::InvalidFlightCondition);
+        }
         let n = self.lattice.len();
         if !twists.is_empty() && twists.len() != n {
             return Err(VlmError::DimensionMismatch);

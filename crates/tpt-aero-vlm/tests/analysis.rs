@@ -286,3 +286,26 @@ fn flat_wing_induced_drag_scales_with_cl_squared() {
         100.0 * (hi - lo) / lo
     );
 }
+
+#[test]
+fn rejects_invalid_flight_conditions() {
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    let model = VlmModel::from_planform(&wing, 8, 2, CamberModel::None).expect("valid");
+    for (alpha, v, rho) in [
+        (0.05, 0.0, RHO),
+        (0.05, -1.0, RHO),
+        (0.05, V_INF, 0.0),
+        (f64::NAN, V_INF, RHO),
+        (0.05, f64::NAN, RHO),
+        (0.05, V_INF, f64::INFINITY),
+    ] {
+        assert!(
+            matches!(
+                model.solve(alpha, v, rho, &[]),
+                Err(tpt_aero_vlm::VlmError::InvalidFlightCondition)
+            ),
+            "({alpha}, {v}, {rho}) must be rejected"
+        );
+    }
+    assert!(model.solve(0.05, V_INF, RHO, &[]).is_ok());
+}

@@ -125,12 +125,21 @@ impl DynamicPressure {
 pub struct MachNumber(f64);
 
 impl MachNumber {
-    /// Construct from a raw value. Panics if negative or non-finite — there is
-    /// no physical subsonic model for M < 0 in this library.
+    /// Construct from a raw value, or `None` if negative or non-finite —
+    /// there is no physical model for M < 0 in this library.
+    #[must_use]
+    pub fn try_new(mach: f64) -> Option<Self> {
+        (mach >= 0.0 && mach.is_finite()).then_some(Self(mach))
+    }
+
+    /// Construct from a raw value known to be valid.
+    ///
+    /// # Panics
+    /// If negative or non-finite; use [`MachNumber::try_new`] for untrusted
+    /// input.
     #[must_use]
     pub fn new(mach: f64) -> Self {
-        assert!(mach >= 0.0 && mach.is_finite(), "Mach must be >= 0: {mach}");
-        Self(mach)
+        Self::try_new(mach).unwrap_or_else(|| panic!("Mach must be finite and >= 0: {mach}"))
     }
 
     /// Raw value.
@@ -151,11 +160,20 @@ impl MachNumber {
 pub struct ReynoldsNumber(f64);
 
 impl ReynoldsNumber {
-    /// Construct from a raw value. Panics if ≤ 0 or non-finite.
+    /// Construct from a raw value, or `None` if ≤ 0 or non-finite.
+    #[must_use]
+    pub fn try_new(re: f64) -> Option<Self> {
+        (re > 0.0 && re.is_finite()).then_some(Self(re))
+    }
+
+    /// Construct from a raw value known to be valid.
+    ///
+    /// # Panics
+    /// If ≤ 0 or non-finite; use [`ReynoldsNumber::try_new`] for untrusted
+    /// input.
     #[must_use]
     pub fn new(re: f64) -> Self {
-        assert!(re > 0.0 && re.is_finite(), "Reynolds must be > 0: {re}");
-        Self(re)
+        Self::try_new(re).unwrap_or_else(|| panic!("Reynolds must be finite and > 0: {re}"))
     }
 
     /// Raw value.
@@ -268,6 +286,9 @@ mod tests {
         assert!(MachNumber::new(0.3).is_subsonic());
         assert!(!MachNumber::new(1.2).is_subsonic());
         assert_eq!(ReynoldsNumber::new(1e6).value(), 1e6);
+        assert!(MachNumber::try_new(f64::NAN).is_none());
+        assert!(MachNumber::try_new(-0.1).is_none());
+        assert!(ReynoldsNumber::try_new(0.0).is_none());
     }
 
     #[test]

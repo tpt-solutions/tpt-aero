@@ -15,6 +15,8 @@ pub enum AirfoilError {
     InvalidNacaCode(String),
     /// A coordinate list must contain at least 2 points with 0 ≤ x ≤ 1.
     InvalidCoordinates,
+    /// Fewer than 2 chordwise stations requested.
+    InvalidResolution,
 }
 
 impl core::fmt::Display for AirfoilError {
@@ -25,6 +27,9 @@ impl core::fmt::Display for AirfoilError {
             }
             AirfoilError::InvalidCoordinates => {
                 write!(f, "airfoil coordinates must be ≥2 points with 0 ≤ x ≤ 1")
+            }
+            AirfoilError::InvalidResolution => {
+                write!(f, "need at least 2 chordwise stations")
             }
         }
     }
@@ -114,8 +119,29 @@ impl AirfoilCoordinates {
 ///
 /// # Errors
 /// [`AirfoilError::InvalidNacaCode`] if the code is not four digits with
-/// `0 < t < 30`.
+/// `0 < t ≤ 40` (percent thickness; covers e.g. NACA 0030).
+/// [`AirfoilError::InvalidResolution`] if `n < 2`.
 pub fn naca4(code: &str, n: usize) -> Result<AirfoilCoordinates, AirfoilError> {
+    naca4_impl(code, n, false)
+}
+
+/// As [`naca4`], but with the *closed* trailing-edge coefficient (0.1036) so
+/// the thickness vanishes exactly at `x = 1`. The shared trailing-edge vertex
+/// appears once (the contour closes implicitly from the last point back to
+/// the first), which is what panel solvers need: a sharp trailing edge with
+/// no gap panel. Total points: `2n`.
+///
+/// # Errors
+/// As [`naca4`].
+pub fn naca4_closed(code: &str, n: usize) -> Result<AirfoilCoordinates, AirfoilError> {
+    naca4_impl(code, n, true)
+}
+
+fn naca4_impl(code: &str, n: usize, closed: bool) -> Result<AirfoilCoordinates, AirfoilError> {
+    let te = if closed { TE_CLOSED } else { TE_OPEN };
+    if n < 2 {
+        return Err(AirfoilError::InvalidResolution);
+    }
     let bytes = code.as_bytes();
     if bytes.len() != 4 || !bytes.iter().all(u8::is_ascii_digit) {
         return Err(AirfoilError::InvalidNacaCode(code.to_string()));
@@ -124,10 +150,9 @@ pub fn naca4(code: &str, n: usize) -> Result<AirfoilCoordinates, AirfoilError> {
     let (m_pct, p, t_pct) = (digit(0), digit(1) / 10.0, digit(2) * 10.0 + digit(3));
     let m = m_pct / 100.0;
     let t = t_pct / 100.0;
-    if t <= 0.0 || t >= 0.30 {
+    if t <= 0.0 || t > 0.40 {
         return Err(AirfoilError::InvalidNacaCode(code.to_string()));
     }
-    assert!(n >= 2, "need at least 2 chordwise stations");
 
     // Cosine-spaced stations from TE (x=1) around the LE to TE again.
     let beta: Vec<f64> = (0..=n)
@@ -140,14 +165,16 @@ pub fn naca4(code: &str, n: usize) -> Result<AirfoilCoordinates, AirfoilError> {
 
     // Upper surface: x goes from ~1 (TE) down to 0 (LE).
     for &xi in x.iter().skip(1).rev() {
-        let (yt, dyc, yc) = thickness_camber(xi, m, p, t);
+        let (yt, dyc, yc) = thickness_camber(xi, m, p, t, te);
         let theta = dyc.atan2(1.0);
         px.push(xi - yt * theta.sin());
         py.push(yc + yt * theta.cos());
     }
     // Lower surface: x from 0 back to 1.
-    for &xi in x.iter() {
-        let (yt, dyc, yc) = thickness_camber(xi, m, p, t);
+    // (closed: the final station repeats the upper-surface TE vertex.)
+    let lower_count = if closed { n } else { n + 1 };
+    for &xi in x.iter().take(lower_count) {
+        let (yt, dyc, yc) = thickness_camber(xi, m, p, t, te);
         let theta = dyc.atan2(1.0);
         px.push(xi + yt * theta.sin());
         py.push(yc - yt * theta.cos());
@@ -156,12 +183,17 @@ pub fn naca4(code: &str, n: usize) -> Result<AirfoilCoordinates, AirfoilError> {
     AirfoilCoordinates::new(px, py)
 }
 
+/// Original NACA trailing-edge coefficient (open trailing edge).
+const TE_OPEN: f64 = 0.1015;
+/// Modified coefficient that closes the trailing edge (thickness 0 at x = 1).
+const TE_CLOSED: f64 = 0.1036;
+
 /// NACA thickness half-width, camber ordinate and camber slope at `x`.
-fn thickness_camber(x: f64, m: f64, p: f64, t: f64) -> (f64, f64, f64) {
+fn thickness_camber(x: f64, m: f64, p: f64, t: f64, te: f64) -> (f64, f64, f64) {
     let yt = 5.0
         * t
         * (0.2969 * x.sqrt() - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x
-            - 0.1015 * x * x * x * x);
+            - te * x * x * x * x);
     let (yc, dyc);
     if m == 0.0 || p == 0.0 {
         yc = 0.0;
@@ -179,13 +211,13 @@ fn thickness_camber(x: f64, m: f64, p: f64, t: f64) -> (f64, f64, f64) {
 /// Return the NACA camber-line ordinate at `x` for camber `m` at position `p`.
 #[must_use]
 pub fn naca4_camber(x: f64, m: f64, p: f64) -> f64 {
-    thickness_camber(x, m, p, 0.0).2
+    thickness_camber(x, m, p, 0.0, TE_OPEN).2
 }
 
 /// Return the NACA thickness half-width at `x` for thickness ratio `t`.
 #[must_use]
 pub fn naca4_thickness(x: f64, t: f64) -> f64 {
-    thickness_camber(x, 0.0, 0.0, t).0
+    thickness_camber(x, 0.0, 0.0, t, TE_OPEN).0
 }
 
 #[cfg(test)]
@@ -215,6 +247,20 @@ mod tests {
     }
 
     #[test]
+    fn closed_trailing_edge_has_no_gap_or_duplicate() {
+        for code in ["0012", "2412"] {
+            let a = naca4_closed(code, 40).expect("valid");
+            assert_eq!(a.len(), 80);
+            let (first, last) = ((a.x[0], a.y[0]), (a.x[a.len() - 1], a.y[a.len() - 1]));
+            assert!((first.0 - 1.0).abs() < 1e-12 && first.1.abs() < 1e-12);
+            // The last vertex is a real lower-surface point, not a repeat of
+            // the TE, and the closing panel is short but non-degenerate.
+            let gap = ((first.0 - last.0).powi(2) + (first.1 - last.1).powi(2)).sqrt();
+            assert!(gap > 0.0 && gap < 0.01, "closing panel {gap}");
+        }
+    }
+
+    #[test]
     fn rejects_bad_codes() {
         assert_eq!(
             naca4("abc", 10).unwrap_err(),
@@ -228,6 +274,11 @@ mod tests {
             naca4("0000", 10).unwrap_err(),
             AirfoilError::InvalidNacaCode("0000".into())
         );
+        assert_eq!(
+            naca4("0012", 1).unwrap_err(),
+            AirfoilError::InvalidResolution
+        );
+        assert!(naca4("0030", 20).is_ok());
     }
 
     #[test]

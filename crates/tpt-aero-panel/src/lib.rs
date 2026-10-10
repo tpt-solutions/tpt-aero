@@ -20,7 +20,7 @@
 //!
 //! // Cylinder Cp amplification under Prandtl–Glauert at M = 0.6.
 //! let cp_i = -3.0;               // shoulder suction, incompressible
-//! let cp_c = compress::prandtl_glauert(cp_i, 0.6);
+//! let cp_c = compress::prandtl_glauert(cp_i, 0.6).unwrap();
 //! assert!(cp_c < cp_i);
 //!
 //! // Source panels on a circle reproduce Cp = 1 − 4 sin²θ.
@@ -42,7 +42,7 @@ pub mod doublet;
 pub mod slender;
 pub mod source;
 
-pub use compress::{beta, is_applicable, karman_tsien, prandtl_glauert};
+pub use compress::{beta, is_applicable, karman_tsien, prandtl_glauert, CompressibilityError};
 pub use doublet::{solve_doublet_panels, DoubletSolution};
 pub use slender::{SlenderBody, SlenderError};
 pub use source::{solve_source_panels, PanelError, SourceSolution};

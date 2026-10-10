@@ -42,7 +42,7 @@ pub mod num;
 pub mod polar;
 pub mod quantities;
 
-pub use airfoil::{AirfoilCoordinates, AirfoilError};
+pub use airfoil::{naca4, naca4_closed, AirfoilCoordinates, AirfoilError};
 pub use coefficients::{
     DragCoefficient, ForceVector, LiftCoefficient, MomentVector, PitchingMomentCoefficient,
     RollingMomentCoefficient, SideForceCoefficient, YawingMomentCoefficient,
