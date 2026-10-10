@@ -19,7 +19,7 @@ use alloc::{vec, vec::Vec};
 use tpt_aero_core::{Real, Vec3};
 
 use crate::lattice::Lattice;
-use crate::linalg::{lu_solve, lu_solve_generic, SolveError};
+use crate::linalg::{lu_solve, lu_solve_generic, LuFactors, SolveError};
 use crate::vortex::{horseshoe_velocity, semi_infinite_velocity};
 
 /// Errors from a VLM analysis.
@@ -157,6 +157,80 @@ pub struct VlmSolutionFields<R: Real> {
     pub gamma: Vec<R>,
 }
 
+/// A VLM model with its geometry-only work done up front: the LU factors of
+/// the AIC matrix and the Gamma-to-local-velocity influence coefficients.
+///
+/// Both depend only on the lattice (the trailing legs are fixed along body
+/// +x), not on alpha, V or rho, so an angle-of-attack sweep pays the O(N^3)
+/// factorization and O(N^2) kernel evaluations once and each angle costs only
+/// O(N^2) arithmetic. Results match [`VlmModel::solve`] with zero twist.
+/// Obtain one with [`VlmModel::prepare`].
+#[derive(Debug)]
+pub struct PreparedVlm<'a> {
+    model: &'a VlmModel,
+    lu: LuFactors,
+    /// Control-point normal of each element.
+    normals: Vec<Vec3<f64>>,
+    /// Row-major `N x N`: velocity at element `j`'s bound midpoint per unit Gamma_k.
+    influence: Vec<Vec3<f64>>,
+}
+
+impl PreparedVlm<'_> {
+    /// Solve one flight condition (zero twist).
+    ///
+    /// # Errors
+    /// [`VlmError::InvalidFlightCondition`] for a non-finite angle or a
+    /// non-positive/non-finite speed or density.
+    pub fn solve(&self, alpha_rad: f64, v_inf: f64, density: f64) -> Result<VlmSolution, VlmError> {
+        if !(alpha_rad.is_finite()
+            && v_inf.is_finite()
+            && v_inf > 0.0
+            && density.is_finite()
+            && density > 0.0)
+        {
+            return Err(VlmError::InvalidFlightCondition);
+        }
+        let n = self.normals.len();
+        let (s, c) = alpha_rad.sin_cos();
+        let v = Vec3::new(v_inf * c, 0.0, v_inf * s);
+        let rhs: Vec<f64> = self.normals.iter().map(|ni| -v.dot(ni)).collect();
+        let gamma = self.lu.solve(&rhs)?;
+        let vlocs: Vec<Vec3<f64>> = (0..n)
+            .map(|j| {
+                let row = &self.influence[j * n..(j + 1) * n];
+                row.iter()
+                    .zip(&gamma)
+                    .fold(v, |acc, (u, g)| acc + u.scaled(*g))
+            })
+            .collect();
+        let m = self.model;
+        let force = m.total_force::<f64>(&gamma, &vlocs, density);
+        let moment = m.total_moment::<f64>(&gamma, &vlocs, density);
+        let (cl, cdi, cm, cl_roll, cn) =
+            m.coefficients::<f64>(&force, &moment, &alpha_rad, v_inf, density);
+        let strip_cl = m.strip_coefficients(&gamma, &vlocs, v_inf, density, alpha_rad);
+        Ok(VlmSolution {
+            cl,
+            cdi,
+            cm,
+            cl_roll,
+            cn,
+            gamma,
+            strip_cl,
+            force,
+        })
+    }
+}
+
+/// Everything one solve produces that downstream post-processing reuses.
+struct SolveCore<R: Real> {
+    fields: VlmSolutionFields<R>,
+    /// Local velocity at each bound-vortex midpoint.
+    vlocs: Vec<Vec3<R>>,
+    /// Total dimensional body-frame force (N).
+    force: Vec3<R>,
+}
+
 /// A horseshoe-vortex VLM model: lattice + reference geometry.
 #[derive(Debug, Clone)]
 pub struct VlmModel {
@@ -248,6 +322,19 @@ impl VlmModel {
         rho: R,
         twists: &[R],
     ) -> Result<VlmSolutionFields<R>, VlmError> {
+        self.solve_core(alpha_rad, v_inf, rho, twists)
+            .map(|core| core.fields)
+    }
+
+    /// The shared solve: AIC assembly, linear solve, and a single pass of
+    /// local velocities that force, moment and strip loads all reuse.
+    fn solve_core<R: Real>(
+        &self,
+        alpha_rad: R,
+        v_inf: R,
+        rho: R,
+        twists: &[R],
+    ) -> Result<SolveCore<R>, VlmError> {
         let elements = self.lattice.elements();
         let n = elements.len();
         if !twists.is_empty() && twists.len() != n {
@@ -293,18 +380,85 @@ impl VlmModel {
             lu_solve_generic::<R>(&a, &rhs)?
         };
 
-        let force = self.total_force::<R>(&gamma, &v, &d, rho);
-        let moment = self.total_moment::<R>(&gamma, &v, &d, rho);
+        let vlocs = self.local_velocities::<R>(&gamma, &v, &d);
+        let force = self.total_force::<R>(&gamma, &vlocs, rho);
+        let moment = self.total_moment::<R>(&gamma, &vlocs, rho);
         let (cl, cdi, cm, cl_roll, cn) =
             self.coefficients::<R>(&force, &moment, &alpha_rad, v_inf, rho);
-        Ok(VlmSolutionFields {
-            cl,
-            cdi,
-            cm,
-            cl_roll,
-            cn,
-            gamma,
+        Ok(SolveCore {
+            fields: VlmSolutionFields {
+                cl,
+                cdi,
+                cm,
+                cl_roll,
+                cn,
+                gamma,
+            },
+            vlocs,
+            force,
         })
+    }
+
+    /// Do the geometry-only work once for repeated zero-twist solves; see
+    /// [`PreparedVlm`].
+    ///
+    /// # Errors
+    /// [`VlmError::SingularAic`] when the AIC matrix is numerically singular.
+    pub fn prepare(&self) -> Result<PreparedVlm<'_>, VlmError> {
+        let elements = self.lattice.elements();
+        let n = elements.len();
+        let d = Vec3::new(1.0, 0.0, 0.0);
+        let normals: Vec<Vec3<f64>> = elements.iter().map(|e| e.normal_for_twist(0.0)).collect();
+        let mut a = vec![vec![0.0; n]; n];
+        for (i, ei) in elements.iter().enumerate() {
+            let cp = ei.cp::<f64>();
+            for (j, ej) in elements.iter().enumerate() {
+                let (ba, bb) = ej.bounds::<f64>();
+                a[i][j] = normals[i].dot(&horseshoe_velocity(&ba, &bb, &d, &cp, 1.0));
+            }
+        }
+        let lu = LuFactors::factor(&a)?;
+        let mut influence = Vec::with_capacity(n * n);
+        for (j, ej) in elements.iter().enumerate() {
+            let (ba, bb) = ej.bounds::<f64>();
+            let mid = (ba + bb).scaled(0.5);
+            for (k, ek) in elements.iter().enumerate() {
+                let (ka, kb) = ek.bounds::<f64>();
+                // Same load model as `local_velocity`: an element's own bound
+                // segment is excluded, its trailing legs are kept.
+                influence.push(if k == j {
+                    semi_infinite_velocity(&kb, &d, &mid, 1.0)
+                        + semi_infinite_velocity(&ka, &d, &mid, -1.0)
+                } else {
+                    horseshoe_velocity(&ka, &kb, &d, &mid, 1.0)
+                });
+            }
+        }
+        Ok(PreparedVlm {
+            model: self,
+            lu,
+            normals,
+            influence,
+        })
+    }
+
+    /// Solve a whole angle-of-attack sweep (zero twist) with one
+    /// [`VlmModel::prepare`]; typically an order of magnitude or more faster
+    /// than calling [`VlmModel::solve`] per angle.
+    ///
+    /// # Errors
+    /// As [`VlmModel::prepare`] and [`PreparedVlm::solve`].
+    pub fn solve_sweep(
+        &self,
+        alphas_rad: &[f64],
+        v_inf: f64,
+        density: f64,
+    ) -> Result<Vec<VlmSolution>, VlmError> {
+        let prepared = self.prepare()?;
+        alphas_rad
+            .iter()
+            .map(|&a| prepared.solve(a, v_inf, density))
+            .collect()
     }
 
     /// Convenience primal solve: `f64` in, [`VlmSolution`] out.
@@ -333,12 +487,12 @@ impl VlmModel {
         if !twists.is_empty() && twists.len() != n {
             return Err(VlmError::DimensionMismatch);
         }
-        let fields = self.solve_generic::<f64>(alpha_rad, v_inf, density, twists)?;
-        let (s, c) = alpha_rad.sin_cos();
-        let v = Vec3::new(v_inf * c, 0.0, v_inf * s);
-        let d = Vec3::new(1.0, 0.0, 0.0);
-        let force = self.total_force::<f64>(&fields.gamma, &v, &d, density);
-        let strip_cl = self.strip_coefficients(&fields.gamma, &v, &d, density, alpha_rad);
+        let SolveCore {
+            fields,
+            vlocs,
+            force,
+        } = self.solve_core::<f64>(alpha_rad, v_inf, density, twists)?;
+        let strip_cl = self.strip_coefficients(&fields.gamma, &vlocs, v_inf, density, alpha_rad);
         Ok(VlmSolution {
             cl: fields.cl,
             cdi: fields.cdi,
@@ -376,13 +530,20 @@ impl VlmModel {
         vloc
     }
 
+    /// [`Self::local_velocity`] for every element, computed once per solve.
+    fn local_velocities<R: Real>(&self, gamma: &[R], v: &Vec3<R>, d: &Vec3<R>) -> Vec<Vec3<R>> {
+        (0..self.lattice.len())
+            .map(|j| self.local_velocity::<R>(j, gamma, v, d))
+            .collect()
+    }
+
     /// Total dimensional body-frame force (N): F = Σ ρ Γ (V_loc × (b − a)).
-    fn total_force<R: Real>(&self, gamma: &[R], v: &Vec3<R>, d: &Vec3<R>, rho: R) -> Vec3<R> {
+    fn total_force<R: Real>(&self, gamma: &[R], vlocs: &[Vec3<R>], rho: R) -> Vec3<R> {
         let elements = self.lattice.elements();
         let mut total = Vec3::<R>::zero();
         for (j, ej) in elements.iter().enumerate() {
             let (ba, bb) = ej.bounds::<R>();
-            let vloc = self.local_velocity::<R>(j, gamma, v, d);
+            let vloc = vlocs[j];
             // b − a points +y for a lift-up Γ.
             let ell = bb - ba;
             total = total + vloc.cross(&ell).scaled(rho * gamma[j]);
@@ -392,7 +553,7 @@ impl VlmModel {
 
     /// Moment vector (N·m) about the reference point; each panel force acts
     /// at its bound-vortex midpoint.
-    fn total_moment<R: Real>(&self, gamma: &[R], v: &Vec3<R>, d: &Vec3<R>, rho: R) -> Vec3<R> {
+    fn total_moment<R: Real>(&self, gamma: &[R], vlocs: &[Vec3<R>], rho: R) -> Vec3<R> {
         let elements = self.lattice.elements();
         let r0 = Vec3::new(
             R::from_f64(self.reference.moment_center.x),
@@ -403,7 +564,7 @@ impl VlmModel {
         for (j, ej) in elements.iter().enumerate() {
             let (ba, bb) = ej.bounds::<R>();
             let mid = (ba + bb).scaled(R::half());
-            let vloc = self.local_velocity::<R>(j, gamma, v, d);
+            let vloc = vlocs[j];
             let ell = bb - ba;
             let f = vloc.cross(&ell).scaled(rho * gamma[j]);
             let r = mid - r0;
@@ -443,19 +604,19 @@ impl VlmModel {
     fn strip_coefficients(
         &self,
         gamma: &[f64],
-        v: &Vec3<f64>,
-        d: &Vec3<f64>,
+        vlocs: &[Vec3<f64>],
+        v_inf: f64,
         density: f64,
         alpha_rad: f64,
     ) -> Vec<f64> {
         let elements = self.lattice.elements();
         let (s, c) = alpha_rad.sin_cos();
         let lift_dir = Vec3::new(-s, 0.0, c);
-        let q = 0.5 * density * v.norm().powi(2);
+        let q = 0.5 * density * v_inf * v_inf;
         let mut force_per_strip: Vec<f64> = vec![0.0; self.lattice.strip_count()];
         let mut ref_len_per_strip: Vec<f64> = vec![0.0; self.lattice.strip_count()];
         for (j, ej) in elements.iter().enumerate() {
-            let vloc = self.local_velocity::<f64>(j, gamma, v, d);
+            let vloc = vlocs[j];
             let (ba, bb) = ej.bounds::<f64>();
             let ell = bb - ba;
             let f = vloc.cross(&ell).scaled(density * gamma[j]);

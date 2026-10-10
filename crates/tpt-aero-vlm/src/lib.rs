@@ -34,6 +34,8 @@ pub mod solver;
 pub mod vortex;
 
 pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError};
-pub use linalg::{cholesky_spd, lu_solve, lu_solve_generic, SolveError};
-pub use solver::{ReferenceGeometry, VlmError, VlmModel, VlmSolution, VlmSolutionFields};
+pub use linalg::{cholesky_spd, lu_solve, lu_solve_generic, LuFactors, SolveError};
+pub use solver::{
+    PreparedVlm, ReferenceGeometry, VlmError, VlmModel, VlmSolution, VlmSolutionFields,
+};
 pub use vortex::{horseshoe_velocity, segment_velocity, semi_infinite_velocity};

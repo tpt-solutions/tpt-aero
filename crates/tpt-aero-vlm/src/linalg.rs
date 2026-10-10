@@ -274,3 +274,137 @@ mod tests {
         );
     }
 }
+
+/// A reusable partial-pivot LU factorization of a dense `f64` matrix.
+///
+/// Factor once with [`LuFactors::factor`] (O(n^3)), then solve any number of
+/// right-hand sides with [`LuFactors::solve`] (O(n^2) each): the right tool
+/// for sweeps where only the right-hand side changes.
+#[derive(Debug, Clone)]
+pub struct LuFactors {
+    n: usize,
+    /// Row-major combined factors: unit-lower L below the diagonal, U above.
+    lu: Vec<f64>,
+    /// `piv[k]` is the row swapped with row `k` at elimination step `k`.
+    piv: Vec<usize>,
+}
+
+impl LuFactors {
+    /// Factor the square matrix `a`.
+    ///
+    /// # Errors
+    /// [`SolveError::DimensionMismatch`] if `a` is empty or not square;
+    /// [`SolveError::Singular`] when a pivot magnitude drops below
+    /// `1e-12 * max(max|a|, 1)`.
+    pub fn factor(a: &[Vec<f64>]) -> Result<Self, SolveError> {
+        let n = a.len();
+        if n == 0 || a.iter().any(|row| row.len() != n) {
+            return Err(SolveError::DimensionMismatch);
+        }
+        let mut lu = Vec::with_capacity(n * n);
+        let mut scale = 0.0_f64;
+        for row in a {
+            for &v in row {
+                scale = scale.max(v.abs());
+            }
+            lu.extend_from_slice(row);
+        }
+        let eps = 1.0e-12 * scale.max(1.0);
+        let mut piv = vec![0; n];
+        for k in 0..n {
+            let mut p = k;
+            let mut best = lu[k * n + k].abs();
+            for i in (k + 1)..n {
+                let c = lu[i * n + k].abs();
+                if c > best {
+                    best = c;
+                    p = i;
+                }
+            }
+            if best.is_nan() || best <= eps {
+                return Err(SolveError::Singular);
+            }
+            piv[k] = p;
+            if p != k {
+                for j in 0..n {
+                    lu.swap(k * n + j, p * n + j);
+                }
+            }
+            let pivot = lu[k * n + k];
+            for i in (k + 1)..n {
+                let factor = lu[i * n + k] / pivot;
+                lu[i * n + k] = factor;
+                for j in (k + 1)..n {
+                    lu[i * n + j] -= factor * lu[k * n + j];
+                }
+            }
+        }
+        Ok(Self { n, lu, piv })
+    }
+
+    /// Solve `A x = b` using the stored factors.
+    ///
+    /// # Errors
+    /// [`SolveError::DimensionMismatch`] if `b.len()` differs from the matrix size.
+    pub fn solve(&self, b: &[f64]) -> Result<Vec<f64>, SolveError> {
+        let n = self.n;
+        if b.len() != n {
+            return Err(SolveError::DimensionMismatch);
+        }
+        let mut x = b.to_vec();
+        for k in 0..n {
+            x.swap(k, self.piv[k]);
+        }
+        for i in 1..n {
+            let mut acc = x[i];
+            for j in 0..i {
+                acc -= self.lu[i * n + j] * x[j];
+            }
+            x[i] = acc;
+        }
+        for i in (0..n).rev() {
+            let mut acc = x[i];
+            for j in (i + 1)..n {
+                acc -= self.lu[i * n + j] * x[j];
+            }
+            x[i] = acc / self.lu[i * n + i];
+        }
+        Ok(x)
+    }
+}
+
+#[cfg(test)]
+mod lu_factor_tests {
+    use super::*;
+
+    #[test]
+    fn matches_one_shot_solver_for_many_rhs() {
+        let a = vec![
+            vec![0.0, 2.0, 1.0],
+            vec![1.0, -1.0, 3.0],
+            vec![4.0, 0.5, -2.0],
+        ];
+        let lu = LuFactors::factor(&a).expect("nonsingular");
+        for b in [[1.0, 2.0, 3.0], [-4.0, 0.0, 7.5], [0.0, 0.0, 1.0]] {
+            let x = lu.solve(&b).expect("sized");
+            let reference = lu_solve(&a, &b).expect("solvable");
+            for (u, v) in x.iter().zip(&reference) {
+                assert!((u - v).abs() < 1e-12, "{u} vs {v}");
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_singular_and_ragged() {
+        let singular = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
+        assert_eq!(
+            LuFactors::factor(&singular).unwrap_err(),
+            SolveError::Singular
+        );
+        let ragged = vec![vec![1.0, 2.0], vec![3.0]];
+        assert_eq!(
+            LuFactors::factor(&ragged).unwrap_err(),
+            SolveError::DimensionMismatch
+        );
+    }
+}

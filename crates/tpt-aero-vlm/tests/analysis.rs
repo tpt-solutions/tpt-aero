@@ -309,3 +309,52 @@ fn rejects_invalid_flight_conditions() {
     }
     assert!(model.solve(0.05, V_INF, RHO, &[]).is_ok());
 }
+
+#[test]
+fn prepared_sweep_matches_one_shot_solve() {
+    // Tapered, swept, dihedral, cambered: nothing symmetric to hide a bug.
+    let wing = WingPlanform::tapered(9.0, 1.6, 0.7, 0.6, 4.0 * DEG);
+    let model =
+        VlmModel::from_planform(&wing, 10, 4, CamberModel::Naca4 { m: 0.03, p: 0.45 }).unwrap();
+    let alphas: Vec<f64> = [-3.0, 0.0, 2.5, 7.0].iter().map(|a| a * DEG).collect();
+    let sweep = model.solve_sweep(&alphas, V_INF, RHO).unwrap();
+    assert_eq!(sweep.len(), alphas.len());
+    for (&alpha, fast) in alphas.iter().zip(&sweep) {
+        let slow = model.solve(alpha, V_INF, RHO, &[]).unwrap();
+        let close = |a: f64, b: f64, what: &str| {
+            assert!(
+                (a - b).abs() <= 1e-9 * (1.0 + b.abs()),
+                "{what} at {alpha}: {a} vs {b}"
+            );
+        };
+        close(fast.cl, slow.cl, "cl");
+        close(fast.cdi, slow.cdi, "cdi");
+        close(fast.cm, slow.cm, "cm");
+        close(fast.cl_roll, slow.cl_roll, "cl_roll");
+        close(fast.cn, slow.cn, "cn");
+        close(fast.force.x, slow.force.x, "fx");
+        close(fast.force.z, slow.force.z, "fz");
+        assert_eq!(fast.strip_cl.len(), slow.strip_cl.len());
+        for (a, b) in fast.strip_cl.iter().zip(&slow.strip_cl) {
+            close(*a, *b, "strip_cl");
+        }
+        for (a, b) in fast.gamma.iter().zip(&slow.gamma) {
+            close(*a, *b, "gamma");
+        }
+    }
+}
+
+#[test]
+fn prepared_solve_validates_flight_condition() {
+    let wing = WingPlanform::rectangular(8.0, 1.0);
+    let model = VlmModel::from_planform(&wing, 6, 2, CamberModel::None).unwrap();
+    let prepared = model.prepare().unwrap();
+    assert!(matches!(
+        prepared.solve(0.1, 0.0, RHO),
+        Err(tpt_aero_vlm::VlmError::InvalidFlightCondition)
+    ));
+    assert!(matches!(
+        model.solve_sweep(&[0.1, f64::NAN], V_INF, RHO),
+        Err(tpt_aero_vlm::VlmError::InvalidFlightCondition)
+    ));
+}

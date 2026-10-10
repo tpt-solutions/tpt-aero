@@ -25,5 +25,13 @@ std = ["tpt-aero-core/std", "tpt-math-numeric/std", "tpt-math-linalg-dense/std",
 alloc = ["tpt-aero-core/alloc", "tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc", "tpt-math-autodiff-fwd/alloc"]
 libm = ["tpt-aero-core/libm", "tpt-math-numeric/libm"]
 
+[dev-dependencies]
+# Dev-only; default features off keeps plotters/rayon out of the tree.
+criterion = { version = "0.5", default-features = false }
+
+[[bench]]
+name = "vlm"
+harness = false
+
 [lints]
 workspace = true
