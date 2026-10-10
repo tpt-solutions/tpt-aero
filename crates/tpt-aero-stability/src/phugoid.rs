@@ -15,8 +15,10 @@
 use tpt_aero_core::Real as _;
 use tpt_aero_vlm::VlmModel;
 
+use crate::controls::ControlDerivatives;
 use crate::longitudinal::LongitudinalDerivatives;
 use crate::modes::{eigenvalues4, Complex};
+use crate::sim::StateSpace;
 
 /// Standard gravity (m/s²).
 const GRAVITY: f64 = 9.80665;
@@ -138,6 +140,32 @@ impl FullLongitudinalPlant {
     #[must_use]
     pub fn eigenvalues(&self) -> [Complex; 4] {
         eigenvalues4(&self.a)
+    }
+
+    /// The plant as a [`StateSpace`] with inputs `[elevator, w_gust]`:
+    /// `elevator` is the control command (rad, VLM sign convention, see
+    /// [`crate::controls`]) with effectiveness `elevator`; `w_gust` is the
+    /// vertical air velocity (m/s, positive = updraft), which raises the
+    /// aerodynamic angle of attack by `w_gust / V` without moving the
+    /// airframe's own attitude.
+    #[must_use]
+    pub fn state_space(
+        &self,
+        p: &FullLongitudinalParameters,
+        elevator: &ControlDerivatives,
+    ) -> StateSpace<4, 2> {
+        let q_s = 0.5 * p.density * p.v_inf * p.v_inf * p.area;
+        let per_mass = q_s / p.mass;
+        let m_scale = q_s * p.chord / p.inertia_y;
+        let mut b = [[0.0; 2]; 4];
+        b[0][0] = -per_mass * elevator.cd;
+        b[1][0] = -per_mass * elevator.cl / p.v_inf;
+        b[2][0] = m_scale * elevator.cm;
+        // Every aerodynamic dependence on alpha also sees the gust.
+        for i in 0..3 {
+            b[i][1] = self.a[i][1] / p.v_inf;
+        }
+        StateSpace { a: self.a, b }
     }
 
     /// Split the spectrum into short period and phugoid (the two complex

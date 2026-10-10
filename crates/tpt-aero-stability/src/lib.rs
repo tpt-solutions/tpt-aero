@@ -47,4 +47,5 @@ pub mod longitudinal;
 pub mod modes;
 pub mod phugoid;
 pub mod plant;
+pub mod sim;
 pub mod trim;

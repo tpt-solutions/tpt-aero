@@ -14,7 +14,9 @@ use alloc::vec::Vec;
 
 use tpt_aero_vlm::{FlightState, PreparedVlm, StateLoads, VlmError, VlmModel};
 
+use crate::controls::ControlDerivatives;
 use crate::modes::{eigenvalues4, Complex};
+use crate::sim::StateSpace;
 
 #[allow(unused_imports)]
 use tpt_aero_core::Real as _;
@@ -219,6 +221,46 @@ impl LateralPlant {
     #[must_use]
     pub fn eigenvalues(&self) -> [Complex; 4] {
         eigenvalues4(&self.a)
+    }
+
+    /// The plant as a [`StateSpace`] with inputs `[aileron, rudder, v_gust]`:
+    /// the two control commands (rad, VLM sign convention: positive aileron
+    /// rolls left, positive rudder yaws right) with their effectiveness
+    /// `aileron` and `rudder`, and the sidewash `v_gust` (m/s, positive for
+    /// air arriving from the right), which adds `v_gust / V` to the
+    /// aerodynamic sideslip.
+    #[must_use]
+    pub fn state_space(
+        &self,
+        p: &LateralParameters,
+        aileron: &ControlDerivatives,
+        rudder: &ControlDerivatives,
+    ) -> StateSpace<4, 3> {
+        let q_s = 0.5 * p.density * p.v_inf * p.v_inf * p.area;
+        let side = q_s / (p.mass * p.v_inf);
+        let moment = q_s * p.span;
+        let det = p.inertia_x * p.inertia_z - p.inertia_xz * p.inertia_xz;
+        // [p'; r'] = M^-1 [L; N].
+        let apply = |l: f64, n: f64| {
+            [
+                (p.inertia_z * l + p.inertia_xz * n) / det,
+                (p.inertia_xz * l + p.inertia_x * n) / det,
+            ]
+        };
+        let ail = apply(moment * aileron.c_roll, moment * aileron.c_yaw);
+        let rud = apply(moment * rudder.c_roll, moment * rudder.c_yaw);
+        let mut b = [[0.0; 3]; 4];
+        b[0][0] = side * aileron.cy;
+        b[0][1] = side * rudder.cy;
+        b[1][0] = ail[0];
+        b[1][1] = rud[0];
+        b[2][0] = ail[1];
+        b[2][1] = rud[1];
+        // The beta column of the dynamics is purely aerodynamic.
+        for i in 0..3 {
+            b[i][2] = self.a[i][0] / p.v_inf;
+        }
+        StateSpace { a: self.a, b }
     }
 
     /// Classify the eigenvalues into the three classical lateral modes.

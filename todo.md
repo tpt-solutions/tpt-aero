@@ -144,6 +144,7 @@ Done:
 - [x] `tpt-aero-cli`: TOML wing cases to CSV, `template`, `isa` subcommands
 - [x] Panel: `naca4_closed` (sharp TE, no gap panel), CCW winding check, `doublet.rs` docs corrected, NACA 0012 validated (Cp_min, lift slope)
 - [x] VLM: `prepare`/`solve_sweep` (AIC + LU cached across angles, ~20x), local velocities computed once per solve, criterion benches
+- [x] Linear time-domain simulation (RK4) with elevator/aileron/rudder and gust inputs; FAR 25 gust alleviation check
 - [x] VTK export of lattice + circulation (library and CLI)
 - [x] Phugoid-capable longitudinal plant (Lanchester cross-check) and control derivatives for any named control
 - [x] Level-flight trim solver; lateral plant with Dutch roll / roll subsidence / spiral modes (dihedral stabilizes spiral, trims vs speed/CG behave classically)
@@ -157,7 +158,7 @@ Done:
 Open:
 - [ ] Panel imports `lu_solve` from vlm (layering); move to core / tpt-math
 - [ ] VLM: opt-in cosine spanwise spacing; wake along freestream
-- [ ] Turn/steady-sideslip trim; full 6-DOF nonlinear time simulation; ailerons/rudder in the lateral plant (B matrices); fuselage and propeller effects
+- [ ] Turn/steady-sideslip trim; nonlinear 6-DOF simulation; closed-loop control examples; fuselage and propeller effects
 - [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
 - [ ] `serde` feature on result types, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
 - [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel

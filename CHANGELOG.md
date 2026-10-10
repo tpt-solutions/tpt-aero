@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- `sim`: RK4 `StateSpace` simulation; `FullLongitudinalPlant::state_space` (elevator + vertical gust inputs) and `LateralPlant::state_space` (aileron, rudder, sidewash). Phugoid period/decay, Dutch roll, steady updraft alignment and roll-rate balance verified in the time domain; 1-cos gust alleviation matches FAR 25 Kg within 5% at 12.5 chords.
+- `gust_response` example: discrete-gust gradient sweep and Dryden turbulence load factors, using the atmosphere crate.
 - `tpt_aero_vlm::export::to_vtk` and `tpt-aero vtk case.toml --alpha 5 --out lattice.vtk`: legacy ASCII VTK of the lattice with circulation, surface and strip cell data (ParaView, PyVista).
 - `phugoid::FullLongitudinalPlant`: four-state longitudinal plant with speed/drag couplings; short-period and phugoid modes (phugoid checked against Lanchester: omega*V constant, damping tracks 1/(sqrt2 L/D)). `drag_alpha_fd` helper.
 - `controls::control_derivatives`: lift, drag, side force and the three moments per radian of any named control.
