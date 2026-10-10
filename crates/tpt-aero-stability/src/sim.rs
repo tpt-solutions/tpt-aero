@@ -49,6 +49,36 @@ impl<const N: usize, const M: usize> StateSpace<N, M> {
     }
 }
 
+impl<const N: usize, const M: usize> StateSpace<N, M> {
+    /// Close a loop around input `input`: `u_input = r_input - k . x`, where
+    /// `r_input` is the new value of that input slot (a reference or command
+    /// offset) and `k` the state-feedback gains. Other inputs are untouched.
+    ///
+    /// The result is `x' = (A - b_input k) x + B r`.
+    ///
+    /// # Panics
+    /// If `input >= M`.
+    #[must_use]
+    pub fn with_feedback(&self, input: usize, k: &[f64; N]) -> Self {
+        assert!(input < M, "input index {input} out of range for {M} inputs");
+        let mut a = self.a;
+        for (i, row) in a.iter_mut().enumerate() {
+            for (j, a_ij) in row.iter_mut().enumerate() {
+                *a_ij -= self.b[i][input] * k[j];
+            }
+        }
+        Self { a, b: self.b }
+    }
+}
+
+impl<const M: usize> StateSpace<4, M> {
+    /// Eigenvalues of the dynamics matrix (see [`crate::modes::eigenvalues4`]).
+    #[must_use]
+    pub fn eigenvalues(&self) -> [crate::modes::Complex; 4] {
+        crate::modes::eigenvalues4(&self.a)
+    }
+}
+
 /// One recorded sample of a simulation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample<const N: usize> {
@@ -138,6 +168,39 @@ mod tests {
         let t = hist.last().unwrap().t;
         let exact = 1.5 * t - 0.75 + 0.75 * (-2.0 * t).exp();
         assert!((hist.last().unwrap().x[0] - exact).abs() < 1e-8);
+    }
+
+    #[test]
+    fn feedback_moves_the_pole_and_leaves_the_input_matrix_alone() {
+        // x' = x + u is unstable; u = r - 3x gives x' = -2x + r.
+        let open = StateSpace::<1, 1> {
+            a: [[1.0]],
+            b: [[1.0]],
+        };
+        let closed = open.with_feedback(0, &[3.0]);
+        assert_eq!(closed.a, [[-2.0]]);
+        assert_eq!(closed.b, open.b);
+        let hist = simulate(&closed, [0.0], 0.01, 1000, |_| [4.0]);
+        assert!((hist.last().unwrap().x[0] - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn four_state_eigenvalues_shift_with_feedback() {
+        // Integrator chain with a single input on the last state.
+        let sys = StateSpace::<4, 1> {
+            a: [
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ],
+            b: [[0.0], [0.0], [0.0], [1.0]],
+        };
+        // u = -(1 x1 + 4 x2 + 6 x3 + 4 x4) gives s^4 + 4s^3 + 6s^2 + 4s + 1 = (s+1)^4.
+        let closed = sys.with_feedback(0, &[1.0, 4.0, 6.0, 4.0]);
+        for z in closed.eigenvalues() {
+            assert!((z.re + 1.0).abs() < 1e-2 && z.im.abs() < 1e-2, "{z:?}");
+        }
     }
 
     #[test]
