@@ -187,7 +187,11 @@ impl StallModel {
     /// plateau `cl_max`/`cl_min`, preserving the sign of the raw lift.
     #[must_use]
     pub fn apply(&self, alpha: f64, cl_raw: f64) -> f64 {
-        let plateau = if cl_raw >= 0.0 { self.cl_max } else { self.cl_min };
+        let plateau = if cl_raw >= 0.0 {
+            self.cl_max
+        } else {
+            self.cl_min
+        };
         let t = ((alpha.abs() - self.alpha_stall) / self.width.max(1.0e-9)).clamp(0.0, 1.0);
         let s = t * t * (3.0 - 2.0 * t);
         cl_raw + (plateau - cl_raw) * s
@@ -257,8 +261,11 @@ impl PolarSet {
         let (m0, m1, wm) = bracket(&machs, mach);
 
         let section = |mach_idx: usize| -> f64 {
-            let at_mach: Vec<&AirfoilPolar> =
-                self.polars.iter().filter(|p| p.mach() == machs[mach_idx]).collect();
+            let at_mach: Vec<&AirfoilPolar> = self
+                .polars
+                .iter()
+                .filter(|p| p.mach() == machs[mach_idx])
+                .collect();
             let res: Vec<f64> = at_mach.iter().map(|p| p.reynolds()).collect();
             let (r0, r1, wr) = bracket(&res, reynolds);
             eval(at_mach[r0]) * (1.0 - wr) + eval(at_mach[r1]) * wr
@@ -367,8 +374,7 @@ mod tests {
     #[test]
     fn polar_set_rejects_duplicates() {
         assert_eq!(
-            PolarSet::new(vec![flat_polar(4.0, 0.0, 1e6), flat_polar(6.0, 0.0, 1e6)])
-                .unwrap_err(),
+            PolarSet::new(vec![flat_polar(4.0, 0.0, 1e6), flat_polar(6.0, 0.0, 1e6)]).unwrap_err(),
             PolarError::InvalidTable
         );
     }

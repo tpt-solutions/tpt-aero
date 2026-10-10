@@ -20,7 +20,10 @@ pub fn prandtl_glauert(cp_incompressible: f64, mach: f64) -> f64 {
 /// [`is_applicable`].
 #[must_use]
 pub fn beta(mach: f64) -> f64 {
-    assert!((0.0..1.0).contains(&mach), "β requires 0 ≤ M < 1, got {mach}");
+    assert!(
+        (0.0..1.0).contains(&mach),
+        "β requires 0 ≤ M < 1, got {mach}"
+    );
     (1.0 - mach * mach).sqrt()
 }
 

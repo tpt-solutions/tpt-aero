@@ -245,8 +245,7 @@ mod tests {
         // back to the exact TE point. The closed-te coefficient keeps the
         // surface points strictly off the TE so no panel degenerates.
         let thickness = |x: f64| {
-            5.0
-                * 0.12
+            5.0 * 0.12
                 * (0.2969 * x.sqrt() - 0.126_0 * x - 0.351_6 * x * x + 0.284_3 * x * x * x
                     - 0.103_6 * x * x * x * x)
         };
@@ -299,8 +298,7 @@ mod tests {
     #[test]
     fn rejects_degenerate() {
         assert_eq!(
-            solve_doublet_panels(&[(0.0, 0.0), (0.5, 0.1), (1.0, 0.0)], 0.0, 1.0, 1.0)
-                .unwrap_err(),
+            solve_doublet_panels(&[(0.0, 0.0), (0.5, 0.1), (1.0, 0.0)], 0.0, 1.0, 1.0).unwrap_err(),
             PanelError::InvalidGeometry
         );
     }

@@ -42,7 +42,13 @@ impl TurbulenceAxis {
     /// Intensity σ (m/s) and integral scale L (m) at true airspeed `v` (m/s).
     /// `vertical` selects the vertical/lateral spectrum correction.
     #[must_use]
-    pub fn new(model: TurbulenceModel, sigma: f64, length: f64, speed: f64, vertical: bool) -> Self {
+    pub fn new(
+        model: TurbulenceModel,
+        sigma: f64,
+        length: f64,
+        speed: f64,
+        vertical: bool,
+    ) -> Self {
         let v = speed.max(1.0e-6);
         let l = length.max(1.0e-6);
         let _ = vertical;
@@ -184,7 +190,12 @@ impl WhiteNoise {
 /// Statistical helper for tests and examples (drives the filter with unit
 /// Gaussian noise; the axis scales internally).
 #[must_use]
-pub fn simulate_axis(axis: &mut TurbulenceAxis, noise: &mut WhiteNoise, dt: f64, n: usize) -> Vec<f64> {
+pub fn simulate_axis(
+    axis: &mut TurbulenceAxis,
+    noise: &mut WhiteNoise,
+    dt: f64,
+    n: usize,
+) -> Vec<f64> {
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
         axis.step(noise.next_gaussian(), dt);
@@ -228,10 +239,13 @@ mod tests {
         let n = 50_000;
         let sum: f64 = (0..n).map(|_| noise.next_gaussian()).sum();
         assert!((sum / n as f64).abs() < 0.05, "mean drift");
-        let var: f64 = (0..n).map(|_| {
-            let g = noise.next_gaussian();
-            g * g
-        }).sum::<f64>() / n as f64;
+        let var: f64 = (0..n)
+            .map(|_| {
+                let g = noise.next_gaussian();
+                g * g
+            })
+            .sum::<f64>()
+            / n as f64;
         assert!((0.8..1.2).contains(&var), "variance {var}");
     }
 

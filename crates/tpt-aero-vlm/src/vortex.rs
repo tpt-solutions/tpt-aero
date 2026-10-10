@@ -28,9 +28,8 @@ pub fn segment_velocity<R: Real>(a: &Vec3<R>, b: &Vec3<R>, p: &Vec3<R>, g: R) ->
     if cross_sq.le_f(eps * eps) || d1.le_f(eps) || d2.le_f(eps) {
         return Vec3::zero();
     }
-    let coeff = (r0.dot(&(
-        r1.scaled(d1.recip()) - r2.scaled(d2.recip())
-    ))) / cross_sq * (g / four_pi::<R>());
+    let coeff = (r0.dot(&(r1.scaled(d1.recip()) - r2.scaled(d2.recip())))) / cross_sq
+        * (g / four_pi::<R>());
     cross.scaled(coeff)
 }
 

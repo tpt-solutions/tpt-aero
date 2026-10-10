@@ -42,7 +42,7 @@ pub mod doublet;
 pub mod slender;
 pub mod source;
 
-pub use compress::{is_applicable, karman_tsien, prandtl_glauert, beta};
+pub use compress::{beta, is_applicable, karman_tsien, prandtl_glauert};
 pub use doublet::{solve_doublet_panels, DoubletSolution};
 pub use slender::{SlenderBody, SlenderError};
 pub use source::{solve_source_panels, PanelError, SourceSolution};

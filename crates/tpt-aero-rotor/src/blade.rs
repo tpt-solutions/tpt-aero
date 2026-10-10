@@ -19,7 +19,10 @@ impl core::fmt::Display for RotorError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             RotorError::InvalidGeometry => {
-                write!(f, "invalid rotor geometry (need 0 ≤ r_hub < r_tip, chord > 0)")
+                write!(
+                    f,
+                    "invalid rotor geometry (need 0 ≤ r_hub < r_tip, chord > 0)"
+                )
             }
             RotorError::NotConverged => write!(f, "BEMT induction iteration did not converge"),
             RotorError::InvalidSection => write!(f, "section lift coefficient out of range"),
@@ -117,15 +120,17 @@ impl RotorGeometry {
         if self.sections.len() < 2 {
             return Err(RotorError::InvalidGeometry);
         }
-        if let Some(w) = self.sections.windows(2).find(|w| w[1].r_frac <= w[0].r_frac) {
+        if let Some(w) = self
+            .sections
+            .windows(2)
+            .find(|w| w[1].r_frac <= w[0].r_frac)
+        {
             let _ = w;
             return Err(RotorError::InvalidGeometry);
         }
-        if self
-            .sections
-            .iter()
-            .any(|s| !(s.chord > 0.0 && s.chord.is_finite()) || !(s.r_frac > 0.0 && s.r_frac <= 1.0))
-        {
+        if self.sections.iter().any(|s| {
+            !(s.chord > 0.0 && s.chord.is_finite()) || !(s.r_frac > 0.0 && s.r_frac <= 1.0)
+        }) {
             return Err(RotorError::InvalidGeometry);
         }
         Ok(())
@@ -134,7 +139,13 @@ impl RotorGeometry {
     /// Rectangular, untwisted blade (constant chord), `n` evenly spaced
     /// stations between the hub and the tip.
     #[must_use]
-    pub fn rectangular(tip_radius: f64, hub_radius: f64, blades: usize, chord: f64, n: usize) -> Self {
+    pub fn rectangular(
+        tip_radius: f64,
+        hub_radius: f64,
+        blades: usize,
+        chord: f64,
+        n: usize,
+    ) -> Self {
         let n = n.max(2);
         let r0 = hub_radius / tip_radius;
         let sections = (0..n)

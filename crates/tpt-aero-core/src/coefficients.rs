@@ -5,8 +5,8 @@
 //! requires the reference dynamic pressure and area explicitly — there is no
 //! `From`/`Into` shortcut that could hide a missing *q·S* factor.
 
-use tpt_math_units::si::f64::{Area, Force, Torque};
 use tpt_math_units::si::area::square_meter;
+use tpt_math_units::si::f64::{Area, Force, Torque};
 use tpt_math_units::si::force::newton;
 use tpt_math_units::si::length::meter;
 use tpt_math_units::si::torque::newton_meter;
@@ -38,8 +38,7 @@ macro_rules! coefficient {
             /// Multiply by *q·S* to obtain the dimensional result.
             ///
             /// For force coefficients the result is a force in N; for moment
-            /// coefficients use [`CoefficientWithArea::to_moment`] with the
-            /// reference chord instead.
+            /// coefficients use `times_q_s_c` with the reference chord instead.
             #[must_use]
             pub fn times_q_s(&self, q: &DynamicPressure, s: &Area) -> Force {
                 Force::new::<newton>(self.0 * q.si() * s.get::<square_meter>())

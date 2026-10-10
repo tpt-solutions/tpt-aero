@@ -97,28 +97,29 @@ pub fn solve_source_panels(
         (0.339_981_043_584_856_3, 0.652_145_154_862_546_1),
         (0.861_136_311_594_052_6, 0.347_854_845_137_453_85),
     ];
-    let panel_velocity = |i_target: usize, (xi, yi): Point2, j: usize, sigma_j: f64| -> (f64, f64) {
-        if j == i_target {
-            return (0.0, 0.0);
-        }
-        let (x1, y1) = points[j];
-        let (x2, y2) = points[(j + 1) % n];
-        let half = len[j] * 0.5;
-        let mut ug = 0.0;
-        let mut vg = 0.0;
-        for &(g, w) in GAUSS.iter() {
-            let s = half * (1.0 + g);
-            let sx = x1 + (x2 - x1) * (s / len[j]);
-            let sy = y1 + (y2 - y1) * (s / len[j]);
-            let rx = xi - sx;
-            let ry = yi - sy;
-            let r2 = (rx * rx + ry * ry).max(1.0e-20);
-            let f = sigma_j * half * w / (2.0 * core::f64::consts::PI);
-            ug += f * rx / r2;
-            vg += f * ry / r2;
-        }
-        (ug, vg)
-    };
+    let panel_velocity =
+        |i_target: usize, (xi, yi): Point2, j: usize, sigma_j: f64| -> (f64, f64) {
+            if j == i_target {
+                return (0.0, 0.0);
+            }
+            let (x1, y1) = points[j];
+            let (x2, y2) = points[(j + 1) % n];
+            let half = len[j] * 0.5;
+            let mut ug = 0.0;
+            let mut vg = 0.0;
+            for &(g, w) in GAUSS.iter() {
+                let s = half * (1.0 + g);
+                let sx = x1 + (x2 - x1) * (s / len[j]);
+                let sy = y1 + (y2 - y1) * (s / len[j]);
+                let rx = xi - sx;
+                let ry = yi - sy;
+                let r2 = (rx * rx + ry * ry).max(1.0e-20);
+                let f = sigma_j * half * w / (2.0 * core::f64::consts::PI);
+                ug += f * rx / r2;
+                vg += f * ry / r2;
+            }
+            (ug, vg)
+        };
 
     let mut a = vec![vec![0.0; n]; n];
     let mut rhs = vec![0.0; n];

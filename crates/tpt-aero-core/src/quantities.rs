@@ -9,8 +9,8 @@
 
 use core::marker::PhantomData;
 
-use tpt_math_units::si::f64::{Angle, MassDensity, Pressure, Velocity};
 use tpt_math_units::si::angle::radian;
+use tpt_math_units::si::f64::{Angle, MassDensity, Pressure, Velocity};
 use tpt_math_units::si::mass_density::kilogram_per_cubic_meter;
 use tpt_math_units::si::pressure::pascal;
 use tpt_math_units::si::velocity::meter_per_second;

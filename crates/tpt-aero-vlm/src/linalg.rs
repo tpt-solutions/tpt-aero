@@ -54,9 +54,7 @@ pub fn lu_solve(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, SolveError> {
     }
     let m = DMatrix::from_row_slice(n, n, &data);
     let rhs = DVector::from_row_slice(b);
-    let x = m
-        .solve(&rhs)
-        .map_err(|_| SolveError::Singular)?;
+    let x = m.solve(&rhs).map_err(|_| SolveError::Singular)?;
     Ok(x.iter().copied().collect())
 }
 
@@ -196,7 +194,13 @@ mod tests {
 
     #[test]
     fn generic_lu_matches_f64() {
-        let a = dense(4, |i, j| if i == j { 8.0 } else { 0.5 * (1.0 + (i + j) as f64) });
+        let a = dense(4, |i, j| {
+            if i == j {
+                8.0
+            } else {
+                0.5 * (1.0 + (i + j) as f64)
+            }
+        });
         let b = [2.0, -1.0, 0.5, 4.0];
         let x1 = lu_solve(&a, &b).expect("f64");
         let x2 = lu_solve_generic::<f64>(&a, &b).expect("generic");
@@ -268,6 +272,5 @@ mod tests {
             cholesky_spd(&a, &[1.0, 1.0]),
             Err(SolveError::NotPositiveDefinite)
         );
-   
     }
 }

@@ -1,6 +1,6 @@
 //! # tpt-aero-verify
 //!
-//! Reusable [`proptest`] strategies for generating valid aerodynamic inputs,
+//! Reusable [`proptest`](mod@proptest) strategies for generating valid aerodynamic inputs,
 //! plus the cross-crate invariant checks from `spec.txt` §2/§4:
 //!
 //! * symmetric geometry at zero AoA ⇒ zero rolling and yawing moments,
@@ -9,6 +9,21 @@
 //!
 //! This crate is std-only (proptest needs the OS RNG); solver crates remain
 //! `no_std`.
+//!
+//! # Example
+//!
+//! ```
+//! use proptest::strategy::{Strategy, ValueTree};
+//! use proptest::test_runner::TestRunner;
+//!
+//! let mut runner = TestRunner::deterministic();
+//! let params = tpt_aero_verify::symmetric_wing()
+//!     .new_tree(&mut runner)
+//!     .unwrap()
+//!     .current();
+//! let wing = params.planform();
+//! assert!(wing.span() > 0.0);
+//! ```
 
 #![forbid(unsafe_code)]
 
@@ -36,8 +51,14 @@ pub struct SymmetricWingParams {
 
 /// Strategy for [`SymmetricWingParams`].
 pub fn symmetric_wing() -> impl Strategy<Value = SymmetricWingParams> {
-    (0.5_f64..30.0, 0.1_f64..5.0, 0.3_f64..1.0, 0.0_f64..1.0, -0.35_f64..0.35).prop_map(
-        |(span, root_chord, taper, sweep_frac, dihedral)| {
+    (
+        0.5_f64..30.0,
+        0.1_f64..5.0,
+        0.3_f64..1.0,
+        0.0_f64..1.0,
+        -0.35_f64..0.35,
+    )
+        .prop_map(|(span, root_chord, taper, sweep_frac, dihedral)| {
             let max_sweep = span * 0.25;
             SymmetricWingParams {
                 span,
@@ -46,8 +67,7 @@ pub fn symmetric_wing() -> impl Strategy<Value = SymmetricWingParams> {
                 sweep: sweep_frac * max_sweep,
                 dihedral,
             }
-        },
-    )
+        })
 }
 
 impl SymmetricWingParams {

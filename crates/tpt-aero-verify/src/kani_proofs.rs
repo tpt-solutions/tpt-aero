@@ -58,10 +58,9 @@ mod proofs {
         };
         let loss = |_phi: f64, _lambda_tot: f64| -> f64 { 1.0 };
 
-        let lambda = solve_induction_bounded(
-            sigma_r, theta, x, lambda_c, 6.0, closure, loss, 0.5, 60,
-        )
-        .unwrap_or(0.0);
+        let lambda =
+            solve_induction_bounded(sigma_r, theta, x, lambda_c, 6.0, closure, loss, 0.5, 60)
+                .unwrap_or(0.0);
         // THE invariant (spec: 0 ≤ a ≤ 1):
         assert!(lambda >= 0.0 && lambda <= 1.0, "λ_i = {lambda}");
     }
@@ -77,10 +76,15 @@ mod proofs {
         kani::assume(a > 0.5 && a < 2.0);
         let residual = |lambda_i: f64| -> f64 { a - 2.0 * (1.0 + lambda_c) * lambda_i };
         let lambda = solve_induction_bounded(
-            0.3, 0.2, 0.5, lambda_c, 6.0,
+            0.3,
+            0.2,
+            0.5,
+            lambda_c,
+            6.0,
             |alpha| (6.0 * alpha, 0.02),
             |_phi, _lt| residual(_lt).signum() * 0.5 + 0.5, // bounded, positive
-            0.5, 60,
+            0.5,
+            60,
         )
         .unwrap_or(0.0);
         assert!(lambda >= 0.0 && lambda <= 1.0);

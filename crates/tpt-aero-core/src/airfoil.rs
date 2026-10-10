@@ -1,6 +1,9 @@
 //! Airfoil geometry: NACA 4-digit generation and coordinate transformations.
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
 #[cfg(not(feature = "std"))]
 use crate::num::Real as _;
@@ -52,9 +55,7 @@ impl AirfoilCoordinates {
         // 0.1015) leaves a tiny overshoot past x = 1 on cambered sections;
         // tolerate it while still rejecting real garbage.
         let tol = 1.0e-3;
-        if x.iter().any(|&xi| xi < -tol || xi > 1.0 + tol)
-            || y.iter().any(|&yi| !yi.is_finite())
-        {
+        if x.iter().any(|&xi| xi < -tol || xi > 1.0 + tol) || y.iter().any(|&yi| !yi.is_finite()) {
             return Err(AirfoilError::InvalidCoordinates);
         }
         Ok(Self { x, y })
@@ -215,9 +216,18 @@ mod tests {
 
     #[test]
     fn rejects_bad_codes() {
-        assert_eq!(naca4("abc", 10).unwrap_err(), AirfoilError::InvalidNacaCode("abc".into()));
-        assert_eq!(naca4("123", 10).unwrap_err(), AirfoilError::InvalidNacaCode("123".into()));
-        assert_eq!(naca4("0000", 10).unwrap_err(), AirfoilError::InvalidNacaCode("0000".into()));
+        assert_eq!(
+            naca4("abc", 10).unwrap_err(),
+            AirfoilError::InvalidNacaCode("abc".into())
+        );
+        assert_eq!(
+            naca4("123", 10).unwrap_err(),
+            AirfoilError::InvalidNacaCode("123".into())
+        );
+        assert_eq!(
+            naca4("0000", 10).unwrap_err(),
+            AirfoilError::InvalidNacaCode("0000".into())
+        );
     }
 
     #[test]

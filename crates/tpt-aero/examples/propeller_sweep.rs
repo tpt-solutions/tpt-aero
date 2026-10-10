@@ -2,8 +2,8 @@
 //! advance-ratio range, printing the performance map and comparing hover
 //! induced velocity against ideal actuator-disk momentum theory.
 
-use tpt_aero::rotor::blade::{RotorGeometry, SectionModel};
 use tpt_aero::rotor::bemt::{BemtSolver, OperatingCondition};
+use tpt_aero::rotor::blade::{RotorGeometry, SectionModel};
 use tpt_aero::rotor::loss::{HubLoss, TipLoss};
 use tpt_aero::rotor::performance_map;
 
@@ -29,14 +29,17 @@ fn main() {
     let rho = 1.225_f64;
 
     println!("=== Propeller BEMT sweep ===");
-    println!("R = 0.127 m, 2 blades, c = 20 mm, {} rpm\n", omega * 60.0 / core::f64::consts::TAU);
+    println!(
+        "R = 0.127 m, 2 blades, c = 20 mm, {} rpm\n",
+        omega * 60.0 / core::f64::consts::TAU
+    );
     println!(
         "{:>6} {:>8} {:>8} {:>8} {:>8} {:>8}",
         "J", "C_T", "C_Q", "C_P", "eta", "FOM"
     );
     let speeds: Vec<f64> = (0..=16).map(|i| i as f64 * 5.0).collect();
-    let map = performance_map(&solver, omega, rho, &speeds, 20.0_f64.to_radians())
-        .expect("map solved");
+    let map =
+        performance_map(&solver, omega, rho, &speeds, 20.0_f64.to_radians()).expect("map solved");
     for p in &map {
         println!(
             "{:>6.2} {:>8.4} {:>8.5} {:>8.5} {:>8.3} {:>8.3}",
@@ -52,7 +55,10 @@ fn main() {
     println!("\nHover cross-check:");
     println!("  ideal actuator disk v_i  = {vi_ideal:.3} m/s");
     println!("  BEMT mid-span v_i        = {vi_mid:.3} m/s");
-    println!("  figure of merit          = {:.3}", sol.loads.figure_of_merit);
+    println!(
+        "  figure of merit          = {:.3}",
+        sol.loads.figure_of_merit
+    );
 
     // Dynamic inflow lag after a collective step.
     let mut inflow = tpt_aero::rotor::DynamicInflow::new(0.127, 0.0);
@@ -61,7 +67,11 @@ fn main() {
     for step in 0..=500 {
         inflow.step(0.0, steady, dt);
         if step % 100 == 0 {
-            println!("  t = {:5.2} s: lambda_i = {:.4}", step as f64 * dt, inflow.lambda());
+            println!(
+                "  t = {:5.2} s: lambda_i = {:.4}",
+                step as f64 * dt,
+                inflow.lambda()
+            );
         }
     }
 }

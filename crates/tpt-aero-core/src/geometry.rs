@@ -230,7 +230,10 @@ impl WingPlanform {
             let _ = w;
             return Err(GeometryError::InvalidPlanform);
         }
-        if sections.iter().any(|s| !(s.chord > 0.0 && s.chord.is_finite())) {
+        if sections
+            .iter()
+            .any(|s| !(s.chord > 0.0 && s.chord.is_finite()))
+        {
             return Err(GeometryError::InvalidPlanform);
         }
         Ok(Self { sections })
@@ -307,8 +310,7 @@ impl WingPlanform {
     /// Span (tip-to-tip extent in y).
     #[must_use]
     pub fn span(&self) -> f64 {
-        self.sections.last().map_or(0.0, |s| s.le.y)
-            - self.sections.first().map_or(0.0, |s| s.le.y)
+        self.sections.last().map_or(0.0, |s| s.le.y) - self.sections.first().map_or(0.0, |s| s.le.y)
     }
 
     /// Mean aerodynamic chord (panel area-weighted standard formula).
@@ -378,9 +380,7 @@ impl WingPlanform {
     pub fn surface_panels(&self) -> Vec<SurfacePanel> {
         self.sections
             .windows(2)
-            .map(|w| {
-                SurfacePanel::new(w[0].le, w[0].te(), w[1].te(), w[1].le)
-            })
+            .map(|w| SurfacePanel::new(w[0].le, w[0].te(), w[1].te(), w[1].le))
             .collect()
     }
 }
@@ -396,7 +396,10 @@ impl core::fmt::Display for GeometryError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             GeometryError::InvalidPlanform => {
-                write!(f, "planform needs ≥2 sections, strictly increasing y, chord > 0")
+                write!(
+                    f,
+                    "planform needs ≥2 sections, strictly increasing y, chord > 0"
+                )
             }
         }
     }

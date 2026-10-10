@@ -119,7 +119,11 @@ mod tests {
         assert!((s.temperature - 288.15).abs() < 1e-9);
         assert!((s.pressure - 101_325.0).abs() < 1e-6);
         assert!((s.density - 1.225).abs() < 2e-4, "ρ = {}", s.density);
-        assert!((s.speed_of_sound - 340.29).abs() < 0.05, "a = {}", s.speed_of_sound);
+        assert!(
+            (s.speed_of_sound - 340.29).abs() < 0.05,
+            "a = {}",
+            s.speed_of_sound
+        );
     }
 
     #[test]

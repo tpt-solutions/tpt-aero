@@ -2,8 +2,8 @@
 //! conservation, induction bounds, and performance-map sanity.
 
 use tpt_aero_rotor::{
-    blade::{RotorGeometry, SectionModel},
     bemt::{BemtSolver, OperatingCondition},
+    blade::{RotorGeometry, SectionModel},
     loss::{HubLoss, TipLoss},
 };
 
@@ -31,7 +31,11 @@ fn hover_thrust_and_convergence() {
     let solver = reference_solver();
     let op = OperatingCondition::hover(OMEGA, RHO);
     let sol = solver.solve(&op).expect("converged");
-    assert!(sol.loads.ct > 0.0 && sol.loads.ct < 0.05, "ct = {}", sol.loads.ct);
+    assert!(
+        sol.loads.ct > 0.0 && sol.loads.ct < 0.05,
+        "ct = {}",
+        sol.loads.ct
+    );
     assert!(sol.loads.cq > 0.0);
     assert!(
         sol.max_residual < 1e-6,
@@ -84,7 +88,12 @@ fn momentum_theory_limit_frictionless() {
         HubLoss::None,
     )
     .expect("valid");
-    for &(v, theta) in &[(10.0_f64, 0.10_f64), (20.0, 0.08), (30.0, 0.06), (25.0, 0.04)] {
+    for &(v, theta) in &[
+        (10.0_f64, 0.10_f64),
+        (20.0, 0.08),
+        (30.0, 0.06),
+        (25.0, 0.04),
+    ] {
         let op = OperatingCondition {
             axial_speed: v,
             omega: OMEGA,
@@ -165,8 +174,8 @@ fn actuator_disk_mass_flow_conserved() {
 fn performance_map_shape() {
     let solver = reference_solver();
     let speeds = [0.0_f64, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 80.0];
-    let map = tpt_aero_rotor::performance_map(&solver, OMEGA, RHO, &speeds, 0.15)
-        .expect("map solved");
+    let map =
+        tpt_aero_rotor::performance_map(&solver, OMEGA, RHO, &speeds, 0.15).expect("map solved");
     // J axis ascending.
     for w in map.windows(2) {
         assert!(w[1].j > w[0].j);
@@ -213,7 +222,9 @@ fn tip_loss_reduces_thrust() {
         )
         .expect("valid")
     };
-    let ideal = mk(TipLoss::None).solve(&OperatingCondition::hover(OMEGA, RHO)).expect("ok");
+    let ideal = mk(TipLoss::None)
+        .solve(&OperatingCondition::hover(OMEGA, RHO))
+        .expect("ok");
     let prandtl = mk(TipLoss::Prandtl)
         .solve(&OperatingCondition::hover(OMEGA, RHO))
         .expect("ok");
@@ -280,7 +291,9 @@ fn polar_closure_runs() {
         HubLoss::None,
     )
     .expect("valid");
-    let sol = solver.solve(&OperatingCondition::hover(OMEGA, RHO)).expect("ok");
+    let sol = solver
+        .solve(&OperatingCondition::hover(OMEGA, RHO))
+        .expect("ok");
     assert!(sol.loads.ct > 0.0);
 }
 

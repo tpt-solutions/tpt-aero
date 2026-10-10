@@ -18,6 +18,17 @@
 //!   planforms with refinement.
 //! * [`num`] — the [`Real`] abstraction that lets solver kernels run on `f64`
 //!   or on forward-mode dual numbers (exact first derivatives).
+//!
+//! # Example
+//!
+//! ```
+//! use tpt_aero_core::{LiftCoefficient, MachNumber, WingPlanform};
+//!
+//! let wing = WingPlanform::rectangular(10.0, 1.0);
+//! let mach = MachNumber::new(0.3);
+//! let cl = LiftCoefficient::new(0.5);
+//! assert!(cl.value() > 0.0 && mach.value() < 0.5);
+//! ```
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -36,10 +47,12 @@ pub use coefficients::{
     DragCoefficient, ForceVector, LiftCoefficient, MomentVector, PitchingMomentCoefficient,
     RollingMomentCoefficient, SideForceCoefficient, YawingMomentCoefficient,
 };
-pub use geometry::{GeometryError, LiftingLinePanel, SurfacePanel, Vec3, WingPlanform, WingSection};
+pub use geometry::{
+    GeometryError, LiftingLinePanel, SurfacePanel, Vec3, WingPlanform, WingSection,
+};
 pub use num::Real;
 pub use polar::{AirfoilPolar, PolarError, PolarSet, StallModel};
 pub use quantities::{
-    AngleOfAttack, AngleOfSideslip, DynamicPressure, Freestream, FreestreamVelocity,
-    LocalVelocity, MachNumber, ReynoldsNumber,
+    AngleOfAttack, AngleOfSideslip, DynamicPressure, Freestream, FreestreamVelocity, LocalVelocity,
+    MachNumber, ReynoldsNumber,
 };

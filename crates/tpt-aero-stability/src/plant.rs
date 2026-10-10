@@ -89,7 +89,11 @@ impl LongitudinalPlant {
         let c = a22 * a33 - a23 * a32;
         // Standard second-order mapping (also valid overdamped, ζ > 1).
         let wn = c.max(0.0).sqrt();
-        let zeta = if wn > 1.0e-9 { b / (2.0 * wn) } else { f64::NAN };
+        let zeta = if wn > 1.0e-9 {
+            b / (2.0 * wn)
+        } else {
+            f64::NAN
+        };
         (wn, zeta)
     }
 }
@@ -132,7 +136,11 @@ mod tests {
                 moment_center: tpt_aero_core::Vec3::new(0.0, 0.0, 0.0),
             });
         let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4);
-        assert!(d.cm_alpha < 0.0, "C_mα = {} must be negative ahead of the AC", d.cm_alpha);
+        assert!(
+            d.cm_alpha < 0.0,
+            "C_mα = {} must be negative ahead of the AC",
+            d.cm_alpha
+        );
         let p = PlantParameters {
             v_inf: 50.0,
             chord: 1.0,

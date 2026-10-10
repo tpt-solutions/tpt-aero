@@ -60,11 +60,13 @@ pub use tpt_aero_stability as stability;
 pub use tpt_aero_verify as verify;
 
 // Convenience re-exports of the most-used types (default features).
-#[cfg(feature = "core")]
-pub use tpt_aero_core::{AngleOfAttack, DynamicPressure, MachNumber, ReynoldsNumber, WingPlanform, WingSection};
-#[cfg(feature = "vlm")]
-pub use tpt_aero_vlm::{CamberModel, VlmModel, VlmSolution};
-#[cfg(feature = "rotor")]
-pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
 #[cfg(feature = "atmo")]
 pub use tpt_aero_atmo::isa;
+#[cfg(feature = "core")]
+pub use tpt_aero_core::{
+    AngleOfAttack, DynamicPressure, MachNumber, ReynoldsNumber, WingPlanform, WingSection,
+};
+#[cfg(feature = "rotor")]
+pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
+#[cfg(feature = "vlm")]
+pub use tpt_aero_vlm::{CamberModel, VlmModel, VlmSolution};

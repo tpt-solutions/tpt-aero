@@ -31,7 +31,5 @@ pub mod shear;
 pub mod turbulence;
 
 pub use isa::{altitude_from_pressure, at, IsaError, IsaState, G0, R_AIR};
-pub use shear::{power_law, log_law, DiscreteGust, GustShape};
-pub use turbulence::{
-    simulate_axis, TurbulenceAxis, TurbulenceField, TurbulenceModel, WhiteNoise,
-};
+pub use shear::{log_law, power_law, DiscreteGust, GustShape};
+pub use turbulence::{simulate_axis, TurbulenceAxis, TurbulenceField, TurbulenceModel, WhiteNoise};

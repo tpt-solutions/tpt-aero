@@ -76,8 +76,7 @@ impl CamberModel {
                 } else if x < p {
                     m / (p * p) * (2.0 * p * x - x * x)
                 } else {
-                    m / ((1.0 - p) * (1.0 - p))
-                        * (1.0 - 2.0 * p + 2.0 * p * x - x * x)
+                    m / ((1.0 - p) * (1.0 - p)) * (1.0 - 2.0 * p + 2.0 * p * x - x * x)
                 }
             }
         }

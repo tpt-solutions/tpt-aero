@@ -51,8 +51,18 @@ pub fn longitudinal_fd(
     density: f64,
     eps_alpha: f64,
 ) -> LongitudinalDerivatives {
-    let cl_at = |a: f64| model.solve(a, v_inf, density, &[]).map(|s| s.cl).unwrap_or(f64::NAN);
-    let cm_at = |a: f64| model.solve(a, v_inf, density, &[]).map(|s| s.cm).unwrap_or(f64::NAN);
+    let cl_at = |a: f64| {
+        model
+            .solve(a, v_inf, density, &[])
+            .map(|s| s.cl)
+            .unwrap_or(f64::NAN)
+    };
+    let cm_at = |a: f64| {
+        model
+            .solve(a, v_inf, density, &[])
+            .map(|s| s.cm)
+            .unwrap_or(f64::NAN)
+    };
     let cl_alpha = central_difference(cl_at, alpha_rad, eps_alpha);
     let cm_alpha = central_difference(cm_at, alpha_rad, eps_alpha);
 
@@ -123,12 +133,7 @@ pub fn cl_alpha_dual(model: &VlmModel, alpha_rad: f64, v_inf: f64, density: f64)
     use tpt_math_autodiff_fwd::Dual;
     let a = Dual::<f64>::variable(alpha_rad, 0);
     model
-        .solve_generic::<Dual<f64, 1>>(
-            a,
-            Dual::constant(v_inf),
-            Dual::constant(density),
-            &[],
-        )
+        .solve_generic::<Dual<f64, 1>>(a, Dual::constant(v_inf), Dual::constant(density), &[])
         .map(|f| f.cl.du(0))
         .unwrap_or(f64::NAN)
 }
@@ -177,11 +182,7 @@ mod tests {
             dual
         );
         // Compare against the exact Fourier lifting-line value ≈ 5.05 /rad.
-        assert!(
-            (4.7..=5.2).contains(&fd.cl_alpha),
-            "C_Lα = {}",
-            fd.cl_alpha
-        );
+        assert!((4.7..=5.2).contains(&fd.cl_alpha), "C_Lα = {}", fd.cl_alpha);
         // A camberless wing referenced at its aerodynamic center (MAC
         // quarter chord) has C_mα ≈ 0; static stability arises once the
         // reference point is ahead of the AC.

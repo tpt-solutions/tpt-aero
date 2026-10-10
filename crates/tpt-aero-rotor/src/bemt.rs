@@ -239,18 +239,28 @@ impl BemtSolver {
         let tip_loss = self.tip_loss;
         let hub_loss = self.hub_loss;
         let blades = self.geometry.blades;
-        let lambda_i = solve_induction_bounded(sigma_r, theta, x, lambda_c, a_slope, |alpha| {
-            self.section.coefficients(alpha)
-        }, |phi, lambda_tot| {
-            tip_loss.factor(x, phi, lambda_tot, blades) * hub_loss.factor(x, phi, blades)
-        }, self.relaxation, self.max_iterations)
+        let lambda_i = solve_induction_bounded(
+            sigma_r,
+            theta,
+            x,
+            lambda_c,
+            a_slope,
+            |alpha| self.section.coefficients(alpha),
+            |phi, lambda_tot| {
+                tip_loss.factor(x, phi, lambda_tot, blades) * hub_loss.factor(x, phi, blades)
+            },
+            self.relaxation,
+            self.max_iterations,
+        )
         .ok_or(RotorError::InvalidSection)?;
         Ok((lambda_i, self.max_iterations))
     }
 
     /// Combined tip/hub loss factor at one annulus.
     fn loss_factor(&self, x: f64, phi: f64, lambda_tot: f64) -> f64 {
-        let tip = self.tip_loss.factor(x, phi, lambda_tot, self.geometry.blades);
+        let tip = self
+            .tip_loss
+            .factor(x, phi, lambda_tot, self.geometry.blades);
         let hub = self.hub_loss.factor(x, phi, self.geometry.blades);
         tip * hub
     }
@@ -276,7 +286,11 @@ impl BemtSolver {
         let j = core::f64::consts::PI * lambda_c;
         // With ΩR-based coefficients, η = TV/P = C_T λ_c / C_Q
         // (the textbook J·C_T/(2π C_Q) form holds for n-based coefficients).
-        let eta = if cq.abs() > 1.0e-12 { ct * lambda_c / cq } else { 0.0 };
+        let eta = if cq.abs() > 1.0e-12 {
+            ct * lambda_c / cq
+        } else {
+            0.0
+        };
         let _ = j;
         let fom = if cq.abs() > 1.0e-12 {
             ct.powf(1.5) / (core::f64::consts::SQRT_2 * cq)
@@ -355,4 +369,3 @@ pub fn solve_induction_bounded(
     }
     Some(0.5 * (lo + hi))
 }
-

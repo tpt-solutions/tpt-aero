@@ -57,9 +57,7 @@ impl SlenderBody {
     #[must_use]
     pub fn parabolic(length: f64, r_max: f64, n: usize) -> Self {
         let n = n.max(3);
-        let x: Vec<f64> = (0..n)
-            .map(|i| length * i as f64 / (n - 1) as f64)
-            .collect();
+        let x: Vec<f64> = (0..n).map(|i| length * i as f64 / (n - 1) as f64).collect();
         let radius: Vec<f64> = x
             .iter()
             .map(|&xi| {
@@ -78,7 +76,10 @@ impl SlenderBody {
     /// Cross-sectional area `S(x) = π r²` at each station.
     #[must_use]
     pub fn area(&self) -> Vec<f64> {
-        self.radius.iter().map(|&r| core::f64::consts::PI * r * r).collect()
+        self.radius
+            .iter()
+            .map(|&r| core::f64::consts::PI * r * r)
+            .collect()
     }
 
     /// Surface perturbation analysis: returns per-station
@@ -103,7 +104,10 @@ impl SlenderBody {
                 }
                 k if k == n - 1 => {
                     let h = self.x[n - 1] - self.x[n - 2];
-                    ((s[n - 1] - s[n - 2]) / h, (s[n - 1] - 2.0 * s[n - 2] + s[n - 3]) / (h * h))
+                    (
+                        (s[n - 1] - s[n - 2]) / h,
+                        (s[n - 1] - 2.0 * s[n - 2] + s[n - 3]) / (h * h),
+                    )
                 }
                 k => {
                     let hp = self.x[k + 1] - self.x[k];
