@@ -7,12 +7,62 @@
 //! their trailing vortices along body +x, so downwash and sidewash
 //! interference between them is captured by the shared AIC matrix.
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 
 use tpt_aero_core::{Vec3, WingPlanform, WingSection};
 
 use crate::lattice::{CamberModel, Lattice, LatticeError};
 use crate::solver::{ReferenceGeometry, VlmError, VlmModel};
+
+/// How a control surface's two halves move together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlSymmetry {
+    /// Both halves deflect the same way (elevator, flap, rudder).
+    Symmetric,
+    /// The `+y` half deflects as commanded, the `-y` half the opposite way
+    /// (aileron).
+    Antisymmetric,
+}
+
+/// A trailing-edge control surface on a [`Surface`], modelled as a change of
+/// local incidence over the panels aft of the hinge (a plain-flap
+/// approximation; real hinge-line gaps and flap lift losses are not modelled).
+///
+/// # Sign convention
+///
+/// A positive command is a positive local incidence change (trailing edge
+/// *down* on a horizontal surface). Consequences, all covered by tests:
+///
+/// * elevator: positive = more lift, nose-down moment (`C_{mδ} < 0`);
+/// * aileron (antisymmetric): positive = more lift on the right half, so the
+///   airplane rolls **left**; the aircraft-standard positive aileron
+///   (right wing down) is a **negative** command here;
+/// * rudder on an up-pointing fin: positive = side force to the left, nose
+///   yawing **right**; the aircraft-standard positive rudder (trailing edge
+///   left, nose left) is a **negative** command here.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Control {
+    /// Name used to look the control up (e.g. `"elevator"`).
+    pub name: String,
+    /// Hinge position as a fraction of the local chord; the control occupies
+    /// `hinge..1`.
+    pub hinge: f64,
+    /// Inboard end of the control in planform spanwise coordinate (m, `|y|`).
+    pub y_in: f64,
+    /// Outboard end (m, `|y|`).
+    pub y_out: f64,
+    /// Symmetric or antisymmetric deflection.
+    pub symmetry: ControlSymmetry,
+}
+
+/// A control surface resolved against the assembled model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ControlRegion {
+    /// Index of the owning surface in [`VlmModel::from_surfaces`] order.
+    pub surface: usize,
+    /// The control definition.
+    pub control: Control,
+}
 
 /// One lifting surface of a configuration.
 #[derive(Debug, Clone)]
@@ -30,6 +80,8 @@ pub struct Surface {
     /// Roll about body *x* (rad): 0 for a horizontal surface, `π/2` for a
     /// fin pointing up.
     pub roll_rad: f64,
+    /// Trailing-edge controls on this surface.
+    pub controls: Vec<Control>,
 }
 
 impl Surface {
@@ -43,6 +95,7 @@ impl Surface {
             camber: CamberModel::None,
             offset: Vec3::zero(),
             roll_rad: 0.0,
+            controls: Vec::new(),
         }
     }
 
@@ -60,6 +113,27 @@ impl Surface {
     #[must_use]
     pub fn at(mut self, x: f64, y: f64, z: f64) -> Self {
         self.offset = Vec3::new(x, y, z);
+        self
+    }
+
+    /// Add a trailing-edge control spanning `|y|` from `y_in` to `y_out` m
+    /// (planform coordinates) and `hinge..1` of the chord.
+    #[must_use]
+    pub fn with_control(
+        mut self,
+        name: &str,
+        hinge: f64,
+        y_in: f64,
+        y_out: f64,
+        symmetry: ControlSymmetry,
+    ) -> Self {
+        self.controls.push(Control {
+            name: String::from(name),
+            hinge,
+            y_in,
+            y_out,
+            symmetry,
+        });
         self
     }
 
@@ -117,6 +191,18 @@ impl VlmModel {
 
         let mut reference = ReferenceGeometry::from_planform(&first.planform);
         reference.moment_center = reference.moment_center + first.offset;
-        Ok(VlmModel::from_lattice(lattice).with_reference(reference))
+        let regions: Vec<ControlRegion> = surfaces
+            .iter()
+            .enumerate()
+            .flat_map(|(surface, s)| {
+                s.controls.iter().map(move |c| ControlRegion {
+                    surface,
+                    control: c.clone(),
+                })
+            })
+            .collect();
+        Ok(VlmModel::from_lattice(lattice)
+            .with_reference(reference)
+            .with_controls(regions))
     }
 }

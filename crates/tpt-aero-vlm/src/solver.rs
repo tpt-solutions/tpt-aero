@@ -18,6 +18,7 @@ use alloc::{vec, vec::Vec};
 
 use tpt_aero_core::{Real, Vec3};
 
+use crate::aircraft::{ControlRegion, ControlSymmetry};
 use crate::lattice::Lattice;
 use crate::linalg::{lu_solve, lu_solve_generic, LuFactors, SolveError};
 use crate::vortex::{horseshoe_velocity, semi_infinite_velocity};
@@ -139,6 +140,22 @@ pub struct VlmSolution {
     pub force: Vec3<f64>,
 }
 
+impl VlmSolution {
+    /// Roll and yaw moment coefficients in aircraft-standard signs (roll
+    /// positive right-wing-down, yaw positive nose-right) **about the
+    /// stability axes** at angle of attack `alpha_rad`, from the body-axis
+    /// `cl_roll` and `cn` of this solution. Use these, not the raw body-axis
+    /// fields, when forming stability or control derivatives.
+    #[must_use]
+    pub fn stability_roll_yaw(&self, alpha_rad: f64) -> (f64, f64) {
+        let (s, c) = alpha_rad.sin_cos();
+        (
+            -(self.cl_roll * c + self.cn * s),
+            self.cl_roll * s - self.cn * c,
+        )
+    }
+}
+
 /// Generic (`Real`) result fields — the differentiable path returns these so
 /// gradients flow through every quantity.
 #[derive(Debug, Clone)]
@@ -160,7 +177,9 @@ pub struct VlmSolutionFields<R: Real> {
 /// Attitude and body rates for [`PreparedVlm::solve_state`], in aircraft-standard
 /// conventions: `alpha` nose-up positive, `beta` positive when the relative
 /// wind comes from the right of the nose, `p` right wing down, `q` nose up,
-/// `r` nose right (rad/s, about the moment reference point).
+/// `r` nose right (rad/s, about the moment reference point). Rates are about
+/// the **stability axes** (body axes rotated by `alpha` about `y`), the
+/// convention of stability derivatives.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FlightState {
     /// Angle of attack (rad).
@@ -175,7 +194,7 @@ pub struct FlightState {
     pub r: f64,
 }
 
-/// Wind-axis force and body-axis moment coefficients from
+/// Wind-axis force and stability-axis moment coefficients from
 /// [`PreparedVlm::solve_state`], all in aircraft-standard signs: side force
 /// positive to the right, roll moment positive right-wing-down, pitch
 /// positive nose-up, yaw positive nose-right.
@@ -297,8 +316,13 @@ impl PreparedVlm<'_> {
         // Model frame: x aft, y right, z up. A wind from the right (beta > 0)
         // moves toward -y relative to the body.
         let v = Vec3::new(v_inf * ca * cb, -v_inf * sb, v_inf * sa * cb);
-        // Standard (p, q, r) -> angular velocity in the model frame.
-        let omega = Vec3::new(-p, q, -r);
+        // Stability axes: x_s forward along the relative wind projected on the
+        // symmetry plane, z_s down. In the model frame (x aft, z up) that is
+        // forward = (-cos a, 0, -sin a) and down = (sin a, 0, -cos a), so the
+        // standard (p, q, r) become an angular velocity in the model frame.
+        let forward = Vec3::new(-ca, 0.0, -sa);
+        let down = Vec3::new(sa, 0.0, -ca);
+        let omega = forward.scaled(p) + Vec3::new(0.0, q, 0.0) + down.scaled(r);
         let air_at = |point: Vec3<f64>| v - omega.cross(&(point - refg.moment_center));
 
         let elements = m.lattice.elements();
@@ -334,10 +358,9 @@ impl PreparedVlm<'_> {
             c_drag: force.dot(&drag_dir) / q_s,
             c_side: force.dot(&side_dir) / q_s,
             c_pitch: moment.y / (q_s * refg.chord),
-            // Model-frame x and z point aft and up: standard roll/yaw are
-            // the negatives.
-            c_roll: -moment.x / (q_s * refg.span),
-            c_yaw: -moment.z / (q_s * refg.span),
+            // Moments about the stability axes (see above).
+            c_roll: moment.dot(&forward) / (q_s * refg.span),
+            c_yaw: moment.dot(&down) / (q_s * refg.span),
         })
     }
 }
@@ -356,6 +379,7 @@ struct SolveCore<R: Real> {
 pub struct VlmModel {
     lattice: Lattice,
     reference: ReferenceGeometry,
+    controls: Vec<ControlRegion>,
 }
 
 impl VlmModel {
@@ -374,6 +398,7 @@ impl VlmModel {
         Ok(Self {
             lattice,
             reference: ReferenceGeometry::from_planform(planform),
+            controls: Vec::new(),
         })
     }
 
@@ -394,6 +419,7 @@ impl VlmModel {
             area / span.max(1.0e-12)
         };
         Self {
+            controls: Vec::new(),
             lattice,
             reference: ReferenceGeometry {
                 area,
@@ -414,6 +440,68 @@ impl VlmModel {
     #[must_use]
     pub const fn reference(&self) -> &ReferenceGeometry {
         &self.reference
+    }
+
+    /// Attach control-surface definitions (set by [`VlmModel::from_surfaces`]).
+    #[must_use]
+    pub fn with_controls(mut self, controls: Vec<ControlRegion>) -> Self {
+        self.controls = controls;
+        self
+    }
+
+    /// The control surfaces of this model, in the order deflections are given
+    /// to [`VlmModel::control_twists`].
+    #[must_use]
+    pub fn controls(&self) -> &[ControlRegion] {
+        &self.controls
+    }
+
+    /// Index of the control called `name`.
+    #[must_use]
+    pub fn control_index(&self, name: &str) -> Option<usize> {
+        self.controls.iter().position(|c| c.control.name == name)
+    }
+
+    /// The per-element twist slice for a set of control deflections (rad, one
+    /// per control in [`VlmModel::controls`] order), to pass as the `twists`
+    /// argument of [`VlmModel::solve`].
+    ///
+    /// # Errors
+    /// [`VlmError::DimensionMismatch`] if `deflections.len()` differs from
+    /// the number of controls.
+    pub fn control_twists(&self, deflections: &[f64]) -> Result<Vec<f64>, VlmError> {
+        if deflections.len() != self.controls.len() {
+            return Err(VlmError::DimensionMismatch);
+        }
+        let tol = 1.0e-9;
+        Ok(self
+            .lattice
+            .elements()
+            .iter()
+            .map(|e| {
+                self.controls
+                    .iter()
+                    .zip(deflections)
+                    .filter(|(r, _)| {
+                        let c = &r.control;
+                        e.surface == r.surface
+                            && e.chord_frac >= c.hinge
+                            && e.eta.abs() >= c.y_in - tol
+                            && e.eta.abs() <= c.y_out + tol
+                    })
+                    .map(|(r, d)| match r.control.symmetry {
+                        ControlSymmetry::Symmetric => *d,
+                        ControlSymmetry::Antisymmetric => {
+                            if e.eta >= 0.0 {
+                                *d
+                            } else {
+                                -*d
+                            }
+                        }
+                    })
+                    .sum()
+            })
+            .collect())
     }
 
     /// Override the reference geometry (e.g. to match a wind-tunnel model).

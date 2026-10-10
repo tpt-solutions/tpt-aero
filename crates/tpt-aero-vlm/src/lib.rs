@@ -34,7 +34,7 @@ pub mod linalg;
 pub mod solver;
 pub mod vortex;
 
-pub use aircraft::Surface;
+pub use aircraft::{Control, ControlRegion, ControlSymmetry, Surface};
 pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError};
 pub use linalg::{cholesky_spd, lu_solve, lu_solve_generic, LuFactors, SolveError};
 pub use solver::{

@@ -117,6 +117,14 @@ pub struct LatticeElement {
     pub strip_chord: f64,
     /// Geometric twist at the collocation station (rad, positive nose-up).
     pub twist: f64,
+    /// Index of the surface this element belongs to (see [`Lattice::combine`]).
+    pub surface: usize,
+    /// Spanwise coordinate of the strip centre in the surface's own planform
+    /// frame (m, before any placement transform).
+    pub eta: f64,
+    /// Chordwise fraction (0 = leading edge, 1 = trailing edge) of the
+    /// collocation point on the local chord.
+    pub chord_frac: f64,
 }
 
 impl LatticeElement {
@@ -284,6 +292,9 @@ impl Lattice {
                     strip_dy,
                     strip_chord: chord_mid,
                     twist,
+                    surface: 0,
+                    eta: le_mid.y,
+                    chord_frac: t_cp,
                 });
             }
         }
@@ -321,12 +332,20 @@ impl Lattice {
         let first = parts.first().ok_or(LatticeError::InvalidResolution)?;
         let mut elements = Vec::with_capacity(parts.iter().map(Lattice::len).sum());
         let mut strips = 0;
+        let mut surfaces = 0;
         for part in parts {
             elements.extend(part.elements.iter().cloned().map(|mut e| {
                 e.strip += strips;
+                e.surface += surfaces;
                 e
             }));
             strips += part.n_span;
+            surfaces += part
+                .elements
+                .iter()
+                .map(|e| e.surface)
+                .max()
+                .map_or(0, |m| m + 1);
         }
         Ok(Self {
             elements,

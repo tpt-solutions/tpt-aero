@@ -217,3 +217,111 @@ fn combine_keeps_strips_separate_and_rejects_empty_input() {
         Err(VlmError::Lattice(LatticeError::InvalidResolution))
     ));
 }
+
+use tpt_aero_vlm::ControlSymmetry;
+
+fn controlled_aircraft() -> VlmModel {
+    let s = |y: f64, chord: f64| WingSection {
+        le: Vec3::new(0.0, y, 0.0),
+        chord,
+        twist: 0.0,
+    };
+    let fin_planform = WingPlanform::from_sections(vec![s(0.0, 0.9), s(1.5, 0.5)]).unwrap();
+    VlmModel::from_surfaces(&[
+        wing().with_control("aileron", 0.75, 2.5, 4.8, ControlSymmetry::Antisymmetric),
+        htail().with_control("elevator", 0.6, 0.0, 2.0, ControlSymmetry::Symmetric),
+        Surface::vertical(fin_planform, 6, 3)
+            .at(3.8, 0.0, 0.0)
+            .with_control("rudder", 0.6, 0.0, 1.5, ControlSymmetry::Symmetric),
+    ])
+    .unwrap()
+}
+
+/// d(coefficients)/d(deflection) for one control by central difference:
+/// (CL, Cm, Cy, Cl_roll_std, Cn_std).
+fn control_derivative(m: &VlmModel, name: &str) -> [f64; 5] {
+    let alpha = 3.0 * DEG;
+    let index = m.control_index(name).expect("control exists");
+    let h = 1.0e-3;
+    let q_s = 0.5 * RHO * V * V * m.reference().area;
+    let at = |d: f64| {
+        let mut defl = vec![0.0; m.controls().len()];
+        defl[index] = d;
+        let sol = m
+            .solve(alpha, V, RHO, &m.control_twists(&defl).unwrap())
+            .unwrap();
+        let (roll, yaw) = sol.stability_roll_yaw(alpha);
+        [sol.cl, sol.cm, sol.force.y / q_s, roll, yaw]
+    };
+    let (hi, lo) = (at(h), at(-h));
+    core::array::from_fn(|i| (hi[i] - lo[i]) / (2.0 * h))
+}
+
+#[test]
+fn elevator_lifts_and_pitches_nose_down_for_trailing_edge_down() {
+    let m = controlled_aircraft();
+    let [cl, cm, cy, croll, cn] = control_derivative(&m, "elevator");
+    assert!(cl > 0.3, "CL_de = {cl}");
+    assert!(cm < -1.0, "Cm_de = {cm}");
+    assert!(cy.abs() < 1e-6 && croll.abs() < 1e-6 && cn.abs() < 1e-6);
+}
+
+#[test]
+fn aileron_rolls_with_adverse_yaw_and_leaves_the_longitudinal_axis_alone() {
+    let m = controlled_aircraft();
+    let [cl, cm, _cy, croll, cn] = control_derivative(&m, "aileron");
+    assert!(cl.abs() < 1e-6 && cm.abs() < 1e-6, "CL {cl} Cm {cm}");
+    // Right trailing edge down (more lift on the right) rolls left: negative
+    // right-wing-down roll moment, and adverse yaw is nose-right (positive).
+    assert!(croll < -0.2, "Cl_da = {croll}");
+    assert!(cn > 0.0 && cn < 0.1 * croll.abs(), "Cn_da = {cn}");
+}
+
+#[test]
+fn rudder_side_force_and_yaw_are_consistent() {
+    let m = controlled_aircraft();
+    let [cl, cm, cy, _croll, cn] = control_derivative(&m, "rudder");
+    assert!(cl.abs() < 1e-6 && cm.abs() < 1e-6);
+    // The fin sits behind the CG: a side force to the left yaws the nose right.
+    assert!(cy < -0.1, "Cy_dr = {cy}");
+    assert!(cn > 0.05, "Cn_dr = {cn}");
+}
+
+#[test]
+fn control_twists_select_panels_and_respect_symmetry() {
+    let m = controlled_aircraft();
+    assert_eq!(m.controls().len(), 3);
+    assert_eq!(m.control_index("aileron"), Some(0));
+    assert_eq!(m.control_index("elevator"), Some(1));
+    assert_eq!(m.control_index("rudder"), Some(2));
+    assert_eq!(m.control_index("flap"), None);
+
+    let aileron = m.control_twists(&[0.1, 0.0, 0.0]).unwrap();
+    let elements = m.lattice().elements();
+    let moved: Vec<_> = elements
+        .iter()
+        .zip(&aileron)
+        .filter(|(_, t)| **t != 0.0)
+        .collect();
+    assert!(!moved.is_empty());
+    for (e, t) in &moved {
+        assert_eq!(e.surface, 0, "only wing panels move");
+        assert!(e.chord_frac >= 0.75, "only panels aft of the hinge");
+        assert!((2.5..=4.8).contains(&e.eta.abs()));
+        // Antisymmetric: right half +, left half -.
+        assert_eq!(t.signum(), e.eta.signum());
+    }
+    assert!(moved.iter().any(|(e, _)| e.eta > 0.0) && moved.iter().any(|(e, _)| e.eta < 0.0));
+
+    let elevator = m.control_twists(&[0.0, 0.1, 0.0]).unwrap();
+    assert!(elevator
+        .iter()
+        .zip(elements)
+        .all(|(t, e)| (*t != 0.0) == (e.surface == 1 && e.chord_frac >= 0.6)));
+    assert!(elevator.iter().all(|t| *t == 0.0 || *t == 0.1));
+
+    assert!(matches!(
+        m.control_twists(&[0.0]),
+        Err(VlmError::DimensionMismatch)
+    ));
+}

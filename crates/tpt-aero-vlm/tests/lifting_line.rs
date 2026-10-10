@@ -168,3 +168,101 @@ fn lifting_line_reference_reproduces_the_elliptic_limit() {
         ll.cl()
     );
 }
+
+/// Roll and induced-yaw moment coefficients (aircraft-standard signs, wind
+/// axes) of a lifting-line solution with spanwise incidence `alpha(y)`.
+fn ll_roll_and_yaw(span: f64, chord: f64, alpha: impl Fn(f64) -> f64) -> (f64, f64) {
+    let n = 200;
+    let a = {
+        let mut m = vec![vec![0.0; n]; n];
+        let mut rhs = vec![0.0; n];
+        for i in 0..n {
+            let th = PI * (i + 1) as f64 / (n + 1) as f64;
+            rhs[i] = alpha(0.5 * span * th.cos());
+            for k0 in 0..n {
+                let k = (k0 + 1) as f64;
+                m[i][k0] =
+                    k * (k * th).sin() / th.sin() + 2.0 * span * (k * th).sin() / (PI * chord);
+            }
+        }
+        tpt_aero_vlm::lu_solve(&m, &rhs).expect("lifting-line system")
+    };
+    let s = span * chord;
+    let steps = 6000;
+    let (mut roll, mut yaw) = (0.0, 0.0);
+    for i in 0..steps {
+        let th = PI * (i as f64 + 0.5) / steps as f64;
+        let y = 0.5 * span * th.cos();
+        let dy = 0.5 * span * th.sin() * PI / steps as f64;
+        let gamma: f64 = a
+            .iter()
+            .enumerate()
+            .map(|(k, c)| c * ((k + 1) as f64 * th).sin())
+            .sum();
+        let alpha_i: f64 = a
+            .iter()
+            .enumerate()
+            .map(|(k, c)| (k + 1) as f64 * c * ((k + 1) as f64 * th).sin())
+            .sum::<f64>()
+            / th.sin();
+        // Right-wing lift rolls the airplane left (negative); right-wing
+        // induced drag yaws it right (positive).
+        roll += -(4.0 / s) * y * gamma * dy;
+        yaw += (4.0 / s) * y * gamma * alpha_i * dy;
+    }
+    (roll, yaw)
+}
+
+#[test]
+fn aileron_roll_and_adverse_yaw_match_lifting_line() {
+    use tpt_aero_vlm::{ControlSymmetry, Surface};
+    let (span, chord) = (10.0, 1.2);
+    let alpha = 6.0 * DEG;
+    // Full-chord "aileron" over 2.5 < |y| < 4.6875 (both ends on strip edges
+    // of the 32-strip lattice): a pure incidence change, the exact situation
+    // the lifting-line theory models.
+    let model = VlmModel::from_surfaces(&[Surface::horizontal(
+        WingPlanform::rectangular(span, chord),
+        32,
+        3,
+    )
+    .with_control("aileron", 0.0, 2.5, 4.6875, ControlSymmetry::Antisymmetric)])
+    .unwrap();
+
+    let de = 1.0e-3;
+    let vlm = |e: f64| {
+        let t = model.control_twists(&[e]).unwrap();
+        let s = model.solve(alpha, V_INF, RHO, &t).unwrap();
+        s.stability_roll_yaw(alpha)
+    };
+    let ((rp, yp), (rn, yn)) = (vlm(de), vlm(-de));
+    let (vlm_dcl, vlm_dcn) = ((rp - rn) / (2.0 * de), (yp - yn) / (2.0 * de));
+
+    let ll = |e: f64| {
+        ll_roll_and_yaw(span, chord, move |y: f64| {
+            alpha
+                + if (2.5..=4.6875).contains(&y.abs()) {
+                    e * y.signum()
+                } else {
+                    0.0
+                }
+        })
+    };
+    let ((lrp, lyp), (lrn, lyn)) = (ll(de), ll(-de));
+    let (ll_dcl, ll_dcn) = ((lrp - lrn) / (2.0 * de), (lyp - lyn) / (2.0 * de));
+
+    // Roll authority: the finite-chord VLM runs ~10% below the thin-airfoil
+    // lifting line near the tips (the same effect that puts its CL ~4.5%
+    // below at AR 8).
+    assert!(
+        (vlm_dcl / ll_dcl - 1.0).abs() < 0.15,
+        "dCl/de: VLM {vlm_dcl:.4} vs LL {ll_dcl:.4}"
+    );
+    // Induced yaw: same (adverse) sense and the same order of magnitude.
+    // Right trailing edge down rolls left, so adverse yaw is nose-right (+).
+    assert!(ll_dcn > 0.0 && vlm_dcn > 0.0, "VLM {vlm_dcn} LL {ll_dcn}");
+    assert!(
+        (vlm_dcn / ll_dcn - 1.0).abs() < 0.5,
+        "dCn/de: VLM {vlm_dcn:.5} vs LL {ll_dcn:.5}"
+    );
+}

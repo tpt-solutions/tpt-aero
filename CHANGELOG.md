@@ -12,6 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- Control surfaces: `Surface::with_control`, `VlmModel::controls`/`control_index`/`control_twists` (elevator, aileron, rudder as incidence changes aft of a hinge), `VlmSolution::stability_roll_yaw`. Aileron roll authority and adverse yaw validated against lifting line.
 - Multi-surface aircraft: `Surface` (`horizontal`, `vertical`, `.at`, `.with_incidence`, `.with_camber`) and `VlmModel::from_surfaces` for wing + tailplane + fin with shared downwash/sidewash; `Lattice::combine` and `Lattice::transformed`.
 - Lifting-line validation for tapered wings (CL within 4%, loading within 7%, Oswald e within 5%).
 - `aircraft_stability` example (neutral point, derivatives, CG sweep with short-period mode).
@@ -28,6 +29,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tpt_aero::prelude`; examples `isa_table`, `airfoil_cp`, `stability_derivatives`.
 
 ### Fixed
+- **`solve_state` moments and rates are now about stability axes** (body axes rotated by alpha), the convention of stability derivatives. Roll and yaw previously mixed by alpha; found by comparing aileron adverse yaw against lifting-line theory (the sign was wrong in body axes). Lateral derivatives change slightly at non-zero alpha.
 - **`WingSection::twist` was ignored by the VLM solvers** (only the per-solve `twists` slice was applied). Effective twist is now section twist plus the slice.
 - **`WingPlanform::tapered` built a skewed, non-symmetric wing** (one segment from the left tip to the right tip), so any taper, sweep or dihedral broke mirror symmetry. It now builds three sections (tip, root, tip) with V-dihedral. Results for tapered, swept or dihedral wings change.
 - Longitudinal plant: control-matrix area double count, lift control row, missing `C_Lq` and gravity terms.

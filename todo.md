@@ -144,6 +144,7 @@ Done:
 - [x] `tpt-aero-cli`: TOML wing cases to CSV, `template`, `isa` subcommands
 - [x] Panel: `naca4_closed` (sharp TE, no gap panel), CCW winding check, `doublet.rs` docs corrected, NACA 0012 validated (Cp_min, lift slope)
 - [x] VLM: `prepare`/`solve_sweep` (AIC + LU cached across angles, ~20x), local velocities computed once per solve, criterion benches
+- [x] Control surfaces (elevator/aileron/rudder via hinge-line incidence); aileron roll and adverse yaw validated against lifting line (roll within 15%); stability-axis moments
 - [x] Multi-surface aircraft (`Surface`, `from_surfaces`): wing + tail + fin; downwash reduces tail lift slope to ~60-70%, NP/Cn_beta/Cn_r physically sensible
 - [x] Planform twist now applied by the solvers (was silently ignored)
 - [x] Lifting-line validation of tapered wings (found near-field Oswald e up to ~3% above LL; CDi is optimistic, e can exceed 1 at low resolution)
@@ -153,7 +154,7 @@ Done:
 Open:
 - [ ] Panel imports `lu_solve` from vlm (layering); move to core / tpt-math
 - [ ] VLM: opt-in cosine spanwise spacing; wake along freestream
-- [ ] Trim solver; control-surface deflections (ailerons, rudder, elevator); lateral plant matrix; fuselage and propeller effects
+- [ ] Trim solver; lateral plant matrix + Dutch roll/roll/spiral modes; control derivatives in the stability crate; fuselage and propeller effects
 - [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
 - [ ] `serde` feature on result types, VTK export, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
 - [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel
