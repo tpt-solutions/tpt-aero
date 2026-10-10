@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- `VlmModel::prepare` / `PreparedVlm` / `VlmModel::solve_sweep`: factor the AIC and precompute induced-velocity influences once, then solve each angle in O(N^2) (about 20x faster for a 17-angle sweep). `LuFactors` for reusable LU solves.
+- criterion benches for the VLM (`cargo bench -p tpt-aero-vlm`).
 - `naca4_closed`: closed-trailing-edge NACA 4-digit generator for panel solvers.
 - `PanelError::ClockwiseContour`: panel solvers reject clockwise contours.
 - `tpt-aero-cli` crate: `tpt-aero wing case.toml --out polar.csv`, `tpt-aero template wing`, `tpt-aero isa <alt>...`.

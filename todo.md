@@ -143,14 +143,15 @@ Done:
 - [x] `compress::*` return `Result`; `MachNumber`/`ReynoldsNumber::try_new`; `naca4` no longer panics
 - [x] `tpt-aero-cli`: TOML wing cases to CSV, `template`, `isa` subcommands
 - [x] Panel: `naca4_closed` (sharp TE, no gap panel), CCW winding check, `doublet.rs` docs corrected, NACA 0012 validated (Cp_min, lift slope)
+- [x] VLM: `prepare`/`solve_sweep` (AIC + LU cached across angles, ~20x), local velocities computed once per solve, criterion benches
 - [x] Prelude + `isa_table`, `airfoil_cp`, `stability_derivatives` examples
 
 Open:
 - [ ] Panel imports `lu_solve` from vlm (layering); move to core / tpt-math
-- [ ] VLM: opt-in cosine spanwise spacing; wake along freestream; flat AIC + cache across alpha sweeps
+- [ ] VLM: opt-in cosine spanwise spacing; wake along freestream
 - [ ] Lateral-directional derivatives, sideslip, trim solver, multi-surface + control surfaces
 - [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
 - [ ] `serde` feature on result types, VTK export, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
-- [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; criterion benches (bench-smoke is a no-op)
+- [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel
 - [ ] Tag v0.1.0 and publish in dependency order
 

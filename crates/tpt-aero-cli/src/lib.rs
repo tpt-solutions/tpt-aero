@@ -216,12 +216,13 @@ pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
         .with_reference(ReferenceGeometry::from_planform(&planform));
 
     let mut out = String::from("alpha_deg,cl,cdi,cm,cl_roll,cn,lift_n\n");
-    for i in 0..n_points {
-        let alpha_deg = a0 + da * i as f64;
-        let alpha = alpha_deg.to_radians();
-        let sol = model
-            .solve(alpha, speed, density, &[])
-            .map_err(|e| CliError::Solve(e.to_string()))?;
+    let alphas_deg: Vec<f64> = (0..n_points).map(|i| a0 + da * i as f64).collect();
+    let alphas_rad: Vec<f64> = alphas_deg.iter().map(|a| a.to_radians()).collect();
+    // One AIC factorization serves the whole sweep.
+    let sols = model
+        .solve_sweep(&alphas_rad, speed, density)
+        .map_err(|e| CliError::Solve(e.to_string()))?;
+    for ((&alpha_deg, &alpha), sol) in alphas_deg.iter().zip(&alphas_rad).zip(&sols) {
         // Lift is the force component normal to the freestream in the x-z plane.
         let lift = -sol.force.x * alpha.sin() + sol.force.z * alpha.cos();
         out.push_str(&format!(
