@@ -166,5 +166,6 @@ Open:
 - [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel
 - [x] `cargo publish --workspace --dry-run` passes for all 9 crates (dependency order handled by cargo)
 - [x] README rewritten; real per-crate READMEs; `docs/CONVENTIONS.md` and `docs/VALIDATION.md`
+- Note: repeated `cargo publish --workspace --dry-run` runs reuse an unpacked copy of the packaged crates in Cargo's registry cache (a `-<hash>` directory under `registry/src`, named after the temporary registry). After changing a crate without bumping its version, delete that directory first or verification builds against stale sources (this produced a false CLI failure once).
 - [ ] Tag v0.1.0 and publish (needs a decision: bump to 0.1.0 final changelog entry, push, confirm GitHub CI is green first)
 
