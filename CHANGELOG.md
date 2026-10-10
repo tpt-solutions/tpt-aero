@@ -12,6 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- Documentation: rewritten README, per-crate READMEs, `docs/CONVENTIONS.md` (frames, signs, control sense) and `docs/VALIDATION.md` (what is checked against what, and known weaknesses); whole-aircraft doctest in the umbrella crate.
 - `StateSpace::with_feedback` / `eigenvalues` for closed-loop analysis; `control_design` example (yaw damper cuts the ringing yaw rate ~9x and stabilizes the spiral; pitch-attitude hold gives ~1 s rise with no overshoot).
 - `sim`: RK4 `StateSpace` simulation; `FullLongitudinalPlant::state_space` (elevator + vertical gust inputs) and `LateralPlant::state_space` (aileron, rudder, sidewash). Phugoid period/decay, Dutch roll, steady updraft alignment and roll-rate balance verified in the time domain; 1-cos gust alleviation matches FAR 25 Kg within 5% at 12.5 chords.
 - `gust_response` example: discrete-gust gradient sweep and Dryden turbulence load factors, using the atmosphere crate.

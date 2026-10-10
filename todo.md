@@ -163,5 +163,7 @@ Open:
 - [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
 - [ ] `serde` feature on result types, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
 - [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel
-- [ ] Tag v0.1.0 and publish in dependency order
+- [x] `cargo publish --workspace --dry-run` passes for all 9 crates (dependency order handled by cargo)
+- [x] README rewritten; real per-crate READMEs; `docs/CONVENTIONS.md` and `docs/VALIDATION.md`
+- [ ] Tag v0.1.0 and publish (needs a decision: bump to 0.1.0 final changelog entry, push, confirm GitHub CI is green first)
 
