@@ -157,6 +157,44 @@ pub struct VlmSolutionFields<R: Real> {
     pub gamma: Vec<R>,
 }
 
+/// Attitude and body rates for [`PreparedVlm::solve_state`], in aircraft-standard
+/// conventions: `alpha` nose-up positive, `beta` positive when the relative
+/// wind comes from the right of the nose, `p` right wing down, `q` nose up,
+/// `r` nose right (rad/s, about the moment reference point).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FlightState {
+    /// Angle of attack (rad).
+    pub alpha: f64,
+    /// Sideslip angle (rad).
+    pub beta: f64,
+    /// Roll rate (rad/s).
+    pub p: f64,
+    /// Pitch rate (rad/s).
+    pub q: f64,
+    /// Yaw rate (rad/s).
+    pub r: f64,
+}
+
+/// Wind-axis force and body-axis moment coefficients from
+/// [`PreparedVlm::solve_state`], all in aircraft-standard signs: side force
+/// positive to the right, roll moment positive right-wing-down, pitch
+/// positive nose-up, yaw positive nose-right.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StateLoads {
+    /// Lift coefficient (normal to the relative wind, in the plane of symmetry).
+    pub c_lift: f64,
+    /// Drag coefficient along the relative wind (near-field, induced only).
+    pub c_drag: f64,
+    /// Side-force coefficient.
+    pub c_side: f64,
+    /// Pitching-moment coefficient (reference chord).
+    pub c_pitch: f64,
+    /// Rolling-moment coefficient (reference span).
+    pub c_roll: f64,
+    /// Yawing-moment coefficient (reference span).
+    pub c_yaw: f64,
+}
+
 /// A VLM model with its geometry-only work done up front: the LU factors of
 /// the AIC matrix and the Gamma-to-local-velocity influence coefficients.
 ///
@@ -218,6 +256,88 @@ impl PreparedVlm<'_> {
             gamma,
             strip_cl,
             force,
+        })
+    }
+
+    /// Solve a general flight state: attitude (`alpha`, `beta`) and body rates
+    /// about the model's moment reference point, zero twist.
+    ///
+    /// Rotation adds `-omega x r` to the air velocity at every control point
+    /// and bound-vortex midpoint. Trailing legs stay along body +x (as in
+    /// [`VlmModel::solve`]), which is accurate for small sideslip.
+    ///
+    /// # Errors
+    /// [`VlmError::InvalidFlightCondition`] for non-finite state or a
+    /// non-positive/non-finite speed or density.
+    pub fn solve_state(
+        &self,
+        state: &FlightState,
+        v_inf: f64,
+        density: f64,
+    ) -> Result<StateLoads, VlmError> {
+        let FlightState {
+            alpha,
+            beta,
+            p,
+            q,
+            r,
+        } = *state;
+        if !([alpha, beta, p, q, r].iter().all(|x| x.is_finite())
+            && v_inf.is_finite()
+            && v_inf > 0.0
+            && density.is_finite()
+            && density > 0.0)
+        {
+            return Err(VlmError::InvalidFlightCondition);
+        }
+        let m = self.model;
+        let refg = m.reference;
+        let (sa, ca) = alpha.sin_cos();
+        let (sb, cb) = beta.sin_cos();
+        // Model frame: x aft, y right, z up. A wind from the right (beta > 0)
+        // moves toward -y relative to the body.
+        let v = Vec3::new(v_inf * ca * cb, -v_inf * sb, v_inf * sa * cb);
+        // Standard (p, q, r) -> angular velocity in the model frame.
+        let omega = Vec3::new(-p, q, -r);
+        let air_at = |point: Vec3<f64>| v - omega.cross(&(point - refg.moment_center));
+
+        let elements = m.lattice.elements();
+        let n = elements.len();
+        let rhs: Vec<f64> = elements
+            .iter()
+            .zip(&self.normals)
+            .map(|(e, ni)| -air_at(e.collocation).dot(ni))
+            .collect();
+        let gamma = self.lu.solve(&rhs)?;
+        let vlocs: Vec<Vec3<f64>> = (0..n)
+            .map(|j| {
+                let (ba, bb) = elements[j].bounds::<f64>();
+                let row = &self.influence[j * n..(j + 1) * n];
+                row.iter()
+                    .zip(&gamma)
+                    .fold(air_at((ba + bb).scaled(0.5)), |acc, (u, g)| {
+                        acc + u.scaled(*g)
+                    })
+            })
+            .collect();
+        let force = m.total_force::<f64>(&gamma, &vlocs, density);
+        let moment = m.total_moment::<f64>(&gamma, &vlocs, density);
+
+        // Wind axes: drag along the relative wind, lift normal to it in the
+        // plane of symmetry, side force completing the right-handed triad.
+        let drag_dir = v.normalized();
+        let lift_dir = drag_dir.cross(&Vec3::new(0.0, 1.0, 0.0)).normalized();
+        let side_dir = lift_dir.cross(&drag_dir);
+        let q_s = 0.5 * density * v_inf * v_inf * refg.area;
+        Ok(StateLoads {
+            c_lift: force.dot(&lift_dir) / q_s,
+            c_drag: force.dot(&drag_dir) / q_s,
+            c_side: force.dot(&side_dir) / q_s,
+            c_pitch: moment.y / (q_s * refg.chord),
+            // Model-frame x and z point aft and up: standard roll/yaw are
+            // the negatives.
+            c_roll: -moment.x / (q_s * refg.span),
+            c_yaw: -moment.z / (q_s * refg.span),
         })
     }
 }

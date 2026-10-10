@@ -1,4 +1,4 @@
-use tpt_aero_cli::{isa_csv, run_wing, CliError, TEMPLATE};
+use tpt_aero_cli::{isa_csv, run_derivatives, run_wing, CliError, TEMPLATE};
 
 fn rows(csv: &str) -> Vec<Vec<f64>> {
     csv.lines()
@@ -42,4 +42,44 @@ fn isa_rows() {
     assert!((r[0][3] - 1.225).abs() < 1e-3);
     assert!((r[1][1] - 216.65).abs() < 1e-6);
     assert!(isa_csv(&[-5.0]).is_err());
+}
+
+fn asymmetry_case() -> String {
+    // Tapered, swept, dihedral and cambered: every parameter that used to
+    // produce a skewed (non-mirror-symmetric) wing.
+    TEMPLATE
+        .replace("tip_chord = 1.0 ", "tip_chord = 0.5 ")
+        .replace("sweep_le = 0.0 ", "sweep_le = 1.2 ")
+        .replace("dihedral_deg = 0.0", "dihedral_deg = 5.0")
+        .replace(
+            "alpha = { start = -4.0, stop = 10.0, step = 2.0 }",
+            "alpha = { start = 0.0, stop = 6.0, step = 3.0 }",
+        )
+}
+
+#[test]
+fn tapered_swept_wing_is_mirror_symmetric() {
+    let csv = run_wing(&asymmetry_case()).expect("valid case");
+    for row in rows(&csv) {
+        // cl_roll and cn must vanish for a mirror-symmetric wing in
+        // symmetric flight (columns: alpha, cl, cdi, cm, cl_roll, cn, lift).
+        assert!(row[4].abs() < 1e-7, "cl_roll = {} at {}", row[4], row[0]);
+        assert!(row[5].abs() < 1e-7, "cn = {} at {}", row[5], row[0]);
+    }
+}
+
+#[test]
+fn derivatives_report_expected_signs() {
+    let csv = run_derivatives(TEMPLATE, 4.0).expect("valid case");
+    let get = |name: &str| -> f64 {
+        csv.lines()
+            .find_map(|l| l.strip_prefix(&format!("{name},")))
+            .unwrap_or_else(|| panic!("missing {name}"))
+            .parse()
+            .unwrap()
+    };
+    assert!((4.5..5.5).contains(&get("cl_alpha")));
+    assert!(get("cm_q") < 0.0, "pitch damping");
+    assert!(get("cl_p") < 0.0, "roll damping");
+    assert!(run_derivatives(TEMPLATE, f64::NAN).is_err());
 }

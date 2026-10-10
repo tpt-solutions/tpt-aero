@@ -2,12 +2,13 @@
 
 use std::process::ExitCode;
 
-use tpt_aero_cli::{isa_csv, run_wing, TEMPLATE};
+use tpt_aero_cli::{isa_csv, run_derivatives, run_wing, TEMPLATE};
 
 const USAGE: &str = "tpt-aero - aerodynamics from the command line
 
 USAGE:
     tpt-aero wing <case.toml> [--out <file.csv>]   run an alpha sweep (CSV to stdout by default)
+    tpt-aero derivatives <case.toml> [--alpha <deg>]   stability derivatives (default alpha 2)
     tpt-aero template wing                         print a commented case file
     tpt-aero isa <altitude_m>...                   ISA properties as CSV
     tpt-aero --help
@@ -37,6 +38,27 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             _ => Err("usage: tpt-aero template wing".into()),
         },
+        Some("derivatives") => {
+            let path = args
+                .get(1)
+                .ok_or("usage: tpt-aero derivatives <case.toml> [--alpha <deg>]")?;
+            let alpha = match args.get(2).map(String::as_str) {
+                None => 2.0,
+                Some("--alpha") => args
+                    .get(3)
+                    .ok_or("--alpha needs a value in degrees")?
+                    .parse::<f64>()
+                    .map_err(|_| "--alpha must be a number".to_string())?,
+                Some(other) => return Err(format!("unexpected argument: {other}")),
+            };
+            let text =
+                std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            print!(
+                "{}",
+                run_derivatives(&text, alpha).map_err(|e| e.to_string())?
+            );
+            Ok(())
+        }
         Some("isa") => {
             let alts = args[1..]
                 .iter()

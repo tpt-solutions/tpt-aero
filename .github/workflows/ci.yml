@@ -56,6 +56,7 @@ jobs:
           cargo run -q -p tpt-aero-cli -- template wing > wing.toml
           cargo run -q -p tpt-aero-cli -- wing wing.toml --out polar.csv
           test "$(wc -l < polar.csv)" -eq 9
+          cargo run -q -p tpt-aero-cli -- derivatives wing.toml --alpha 4 | grep -q cl_beta
 
   no_std:
     name: no_std build (thumbv6m + wasm)

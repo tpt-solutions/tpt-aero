@@ -41,5 +41,6 @@
 
 extern crate alloc;
 
+pub mod lateral;
 pub mod longitudinal;
 pub mod plant;

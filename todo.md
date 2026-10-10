@@ -93,7 +93,7 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 - [x] Finite-difference stability derivative extraction
 - [x] Analytical stability derivative extraction
 - [x] Derivatives: CLα, Cmα, CLq, Cmq (longitudinal)
-- [ ] Lateral-directional derivatives: Clβ, Cnβ, Cyβ, Clp, Cnr (needs sideslip β in the VLM)
+- [x] Lateral-directional derivatives: Cyβ, Clβ, Cnβ, Cyp, Clp, Cnp, Cyr, Clr, Cnr (wing-alone, via sideslip/rates in `solve_state`; Cmq cross-checked against the incidence method to 0.1%)
 - [x] Control surface effectiveness derivatives: CLδ, Cmδ (longitudinal flap/elevator)
 - [ ] Aileron/rudder derivatives: Clδa, Cnδr
 - [x] Plant-matrix coupling hook for future `tpt-control` integration
@@ -144,12 +144,13 @@ Done:
 - [x] `tpt-aero-cli`: TOML wing cases to CSV, `template`, `isa` subcommands
 - [x] Panel: `naca4_closed` (sharp TE, no gap panel), CCW winding check, `doublet.rs` docs corrected, NACA 0012 validated (Cp_min, lift slope)
 - [x] VLM: `prepare`/`solve_sweep` (AIC + LU cached across angles, ~20x), local velocities computed once per solve, criterion benches
+- [x] Fixed `WingPlanform::tapered` (was a skewed asymmetric wing); symmetry regression tests in core and CLI
 - [x] Prelude + `isa_table`, `airfoil_cp`, `stability_derivatives` examples
 
 Open:
 - [ ] Panel imports `lu_solve` from vlm (layering); move to core / tpt-math
 - [ ] VLM: opt-in cosine spanwise spacing; wake along freestream
-- [ ] Lateral-directional derivatives, sideslip, trim solver, multi-surface + control surfaces
+- [ ] Trim solver, multi-surface (tail, fin) + control surfaces (ailerons, rudder, elevator); lateral plant matrix
 - [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
 - [ ] `serde` feature on result types, VTK export, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
 - [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel

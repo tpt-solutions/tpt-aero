@@ -8,6 +8,7 @@ use std::fmt;
 
 use serde::Deserialize;
 use tpt_aero::prelude::*;
+use tpt_aero::stability::lateral::lateral_fd;
 
 /// A fully commented starting point for `tpt-aero wing`.
 pub const TEMPLATE: &str = r#"# tpt-aero wing case. Run: tpt-aero wing wing.toml --out polar.csv
@@ -143,13 +144,15 @@ fn finite(name: &str, v: f64) -> Result<f64, CliError> {
     }
 }
 
-/// Run a wing case (TOML text) and return the polar as CSV.
-///
-/// Columns: `alpha_deg,cl,cdi,cm,cl_roll,cn,lift_n`.
-///
-/// # Errors
-/// [`CliError`] for malformed or unphysical input and solver failures.
-pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
+/// A validated case: the VLM model plus its flight condition and sweep.
+struct Built {
+    model: VlmModel,
+    speed: f64,
+    density: f64,
+    alphas_deg: Vec<f64>,
+}
+
+fn build(case_toml: &str) -> Result<Built, CliError> {
     let case: Case = toml::from_str(case_toml).map_err(|e| CliError::Parse(e.to_string()))?;
 
     let span = positive("wing.span", case.wing.span)?;
@@ -215,8 +218,28 @@ pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
         .map_err(|e| CliError::Solve(e.to_string()))?
         .with_reference(ReferenceGeometry::from_planform(&planform));
 
+    Ok(Built {
+        model,
+        speed,
+        density,
+        alphas_deg: (0..n_points).map(|i| a0 + da * i as f64).collect(),
+    })
+}
+
+/// Run a wing case (TOML text) and return the polar as CSV.
+///
+/// Columns: `alpha_deg,cl,cdi,cm,cl_roll,cn,lift_n`.
+///
+/// # Errors
+/// [`CliError`] for malformed or unphysical input and solver failures.
+pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
+    let Built {
+        model,
+        speed,
+        density,
+        alphas_deg,
+    } = build(case_toml)?;
     let mut out = String::from("alpha_deg,cl,cdi,cm,cl_roll,cn,lift_n\n");
-    let alphas_deg: Vec<f64> = (0..n_points).map(|i| a0 + da * i as f64).collect();
     let alphas_rad: Vec<f64> = alphas_deg.iter().map(|a| a.to_radians()).collect();
     // One AIC factorization serves the whole sweep.
     let sols = model
@@ -229,6 +252,47 @@ pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
             "{alpha_deg},{:.8},{:.8},{:.8},{:.8},{:.8},{lift:.3}\n",
             sol.cl, sol.cdi, sol.cm, sol.cl_roll, sol.cn
         ));
+    }
+    Ok(out)
+}
+
+/// Stability derivatives of the case's wing at one trim angle of attack, as
+/// `derivative,value` CSV rows (per rad, or per non-dimensional rate
+/// `q c/2V`, `p b/2V`, `r b/2V`; aircraft-standard signs).
+///
+/// Wing-alone results: no tail or fuselage contribution.
+///
+/// # Errors
+/// [`CliError`] for a malformed case or a failed solve.
+pub fn run_derivatives(case_toml: &str, alpha_deg: f64) -> Result<String, CliError> {
+    let Built {
+        model,
+        speed,
+        density,
+        ..
+    } = build(case_toml)?;
+    let alpha = finite("alpha", alpha_deg)?.to_radians();
+    let long = longitudinal_fd(&model, alpha, speed, density, 1.0e-4);
+    let lat =
+        lateral_fd(&model, alpha, speed, density).map_err(|e| CliError::Solve(e.to_string()))?;
+    let rows = [
+        ("cl_alpha", long.cl_alpha),
+        ("cm_alpha", long.cm_alpha),
+        ("cl_q", long.cl_q),
+        ("cm_q", long.cm_q),
+        ("cy_beta", lat.cy_beta),
+        ("cl_beta", lat.cl_beta),
+        ("cn_beta", lat.cn_beta),
+        ("cy_p", lat.cy_p),
+        ("cl_p", lat.cl_p),
+        ("cn_p", lat.cn_p),
+        ("cy_r", lat.cy_r),
+        ("cl_r", lat.cl_r),
+        ("cn_r", lat.cn_r),
+    ];
+    let mut out = String::from("derivative,value\n");
+    for (name, value) in rows {
+        out.push_str(&format!("{name},{value:.6}\n"));
     }
     Ok(out)
 }

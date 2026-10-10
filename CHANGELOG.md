@@ -12,6 +12,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- Sideslip and body rates in the VLM: `PreparedVlm::solve_state(FlightState)` returns wind-axis forces and body moments in aircraft-standard signs.
+- `tpt_aero_stability::lateral::lateral_fd`: `C_Yb, C_lb, C_nb, C_Yp, C_lp, C_np, C_Yr, C_lr, C_nr`.
+- `tpt-aero derivatives case.toml --alpha 4` CLI subcommand.
 - `VlmModel::prepare` / `PreparedVlm` / `VlmModel::solve_sweep`: factor the AIC and precompute induced-velocity influences once, then solve each angle in O(N^2) (about 20x faster for a 17-angle sweep). `LuFactors` for reusable LU solves.
 - criterion benches for the VLM (`cargo bench -p tpt-aero-vlm`).
 - `naca4_closed`: closed-trailing-edge NACA 4-digit generator for panel solvers.
@@ -22,6 +25,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tpt_aero::prelude`; examples `isa_table`, `airfoil_cp`, `stability_derivatives`.
 
 ### Fixed
+- **`WingPlanform::tapered` built a skewed, non-symmetric wing** (one segment from the left tip to the right tip), so any taper, sweep or dihedral broke mirror symmetry. It now builds three sections (tip, root, tip) with V-dihedral. Results for tapered, swept or dihedral wings change.
 - Longitudinal plant: control-matrix area double count, lift control row, missing `C_Lq` and gravity terms.
 - BEMT: reported iteration count; thrust no longer integrated inside the hub cutout.
 - Dynamic inflow time constant was off by a factor of the tip speed.
