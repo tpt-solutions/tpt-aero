@@ -9,6 +9,7 @@ members = [
     "crates/tpt-aero-stability",
     "crates/tpt-aero-verify",
     "crates/tpt-aero",
+    "crates/tpt-aero-cli",
 ]
 exclude = []
 
@@ -38,6 +39,7 @@ tpt-aero-rotor = { version = "0.1.0", path = "crates/tpt-aero-rotor", default-fe
 tpt-aero-atmo = { version = "0.1.0", path = "crates/tpt-aero-atmo", default-features = false }
 tpt-aero-stability = { version = "0.1.0", path = "crates/tpt-aero-stability", default-features = false }
 tpt-aero-verify = { version = "0.1.0", path = "crates/tpt-aero-verify", default-features = false }
+tpt-aero = { version = "0.1.0", path = "crates/tpt-aero" }
 
 # Dev-only: property-based testing (MIT OR Apache-2.0). std is fine here —
 # verification harnesses never run in no_std targets.
