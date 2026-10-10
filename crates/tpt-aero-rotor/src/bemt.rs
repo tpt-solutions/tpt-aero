@@ -211,7 +211,8 @@ impl BemtSolver {
             });
         }
 
-        let loads = Self::integrate(&sections, lambda_c);
+        let hub_frac = self.geometry.hub_radius / self.geometry.tip_radius;
+        let loads = Self::integrate(&sections, lambda_c, hub_frac);
         Ok(BemtSolution {
             loads,
             sections,
@@ -239,7 +240,7 @@ impl BemtSolver {
         let tip_loss = self.tip_loss;
         let hub_loss = self.hub_loss;
         let blades = self.geometry.blades;
-        let lambda_i = solve_induction_bounded(
+        let (lambda_i, iterations) = solve_induction_counted(
             sigma_r,
             theta,
             x,
@@ -253,7 +254,7 @@ impl BemtSolver {
             self.max_iterations,
         )
         .ok_or(RotorError::InvalidSection)?;
-        Ok((lambda_i, self.max_iterations))
+        Ok((lambda_i, iterations))
     }
 
     /// Combined tip/hub loss factor at one annulus.
@@ -266,7 +267,7 @@ impl BemtSolver {
     }
 
     /// Trapezoidal integration of the annulus distributions into coefficients.
-    fn integrate(sections: &[SectionResult], lambda_c: f64) -> RotorLoads {
+    fn integrate(sections: &[SectionResult], lambda_c: f64, hub_frac: f64) -> RotorLoads {
         let mut ct = 0.0;
         let mut cq = 0.0;
         for w in sections.windows(2) {
@@ -275,9 +276,11 @@ impl BemtSolver {
             cq += 0.5 * (w[0].dcq_dx + w[1].dcq_dx) * dx;
         }
         if let (Some(first), Some(last)) = (sections.first(), sections.last()) {
-            // End stubs [0, x_0] and [x_last, 1] carry the end values.
-            ct += first.dct_dx * first.r_frac;
-            cq += first.dcq_dx * first.r_frac;
+            // End stubs [hub, x_0] and [x_last, 1] carry the end values;
+            // nothing is integrated inside the hub cutout.
+            let inner = (first.r_frac - hub_frac).max(0.0);
+            ct += first.dct_dx * inner;
+            cq += first.dcq_dx * inner;
             ct += last.dct_dx * (1.0 - last.r_frac);
             cq += last.dcq_dx * (1.0 - last.r_frac);
         }
@@ -286,13 +289,15 @@ impl BemtSolver {
         let j = core::f64::consts::PI * lambda_c;
         // With ΩR-based coefficients, η = TV/P = C_T λ_c / C_Q
         // (the textbook J·C_T/(2π C_Q) form holds for n-based coefficients).
-        let eta = if cq.abs() > 1.0e-12 {
+        // Undefined (reported as 0) once thrust or torque reverses: a
+        // windmilling rotor is not a propeller.
+        let eta = if ct > 0.0 && cq > 1.0e-12 {
             ct * lambda_c / cq
         } else {
             0.0
         };
         let _ = j;
-        let fom = if cq.abs() > 1.0e-12 {
+        let fom = if ct > 0.0 && cq > 1.0e-12 {
             ct.powf(1.5) / (core::f64::consts::SQRT_2 * cq)
         } else {
             0.0
@@ -327,12 +332,41 @@ pub fn solve_induction_bounded(
     theta: f64,
     x: f64,
     lambda_c: f64,
+    cl_slope: f64,
+    coefficients: impl Fn(f64) -> (f64, f64),
+    loss_factor: impl Fn(f64, f64) -> f64,
+    relaxation: f64,
+    max_iterations: usize,
+) -> Option<f64> {
+    solve_induction_counted(
+        sigma_r,
+        theta,
+        x,
+        lambda_c,
+        cl_slope,
+        coefficients,
+        loss_factor,
+        relaxation,
+        max_iterations,
+    )
+    .map(|(lambda_i, _)| lambda_i)
+}
+
+/// As [`solve_induction_bounded`], also returning the number of bisection
+/// halvings actually performed.
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+fn solve_induction_counted(
+    sigma_r: f64,
+    theta: f64,
+    x: f64,
+    lambda_c: f64,
     _cl_slope: f64,
     coefficients: impl Fn(f64) -> (f64, f64),
     loss_factor: impl Fn(f64, f64) -> f64,
     _relaxation: f64,
     max_iterations: usize,
-) -> Option<f64> {
+) -> Option<(f64, usize)> {
     let residual = |lambda_i: f64| -> Option<f64> {
         let lambda_tot = (lambda_c + lambda_i).max(0.0);
         let phi = (lambda_tot / x).atan();
@@ -353,9 +387,11 @@ pub fn solve_induction_bounded(
     // thrust — the brake / windmill regime keeps λ_i at the lower bound).
     let g0 = residual(lo)?;
     if g0 <= 0.0 {
-        return Some(0.0);
+        return Some((0.0, 0));
     }
+    let mut iterations = 0;
     for _ in 0..max_iterations {
+        iterations += 1;
         let mid = 0.5 * (lo + hi);
         let g = residual(mid)?;
         if g > 0.0 {
@@ -367,5 +403,5 @@ pub fn solve_induction_bounded(
             break;
         }
     }
-    Some(0.5 * (lo + hi))
+    Some((0.5 * (lo + hi), iterations))
 }

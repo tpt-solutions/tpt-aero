@@ -65,7 +65,7 @@ fn main() {
     let steady = vi_ideal / (omega * 0.127);
     let dt = 0.002;
     for step in 0..=500 {
-        inflow.step(0.0, steady, dt);
+        inflow.step(0.0, steady, omega * 0.127, dt);
         if step % 100 == 0 {
             println!(
                 "  t = {:5.2} s: lambda_i = {:.4}",

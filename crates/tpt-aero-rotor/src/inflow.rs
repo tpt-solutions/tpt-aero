@@ -81,8 +81,11 @@ impl DynamicInflow {
     ///
     /// Uses the exact ZOH solution of `τ λ̇ = λ_ss − λ`, i.e. unconditionally
     /// stable for any `dt > 0`.
-    pub fn step(&mut self, axial_speed: f64, steady_induced_ratio: f64, dt: f64) {
-        let tau = self.time_constant(axial_speed, steady_induced_ratio * 1.0);
+    ///
+    /// `steady_induced_ratio` is the dimensionless `λ_ss = v_ss/(ΩR)`;
+    /// `tip_speed` (`ΩR`, m/s) converts it to the m/s the time constant needs.
+    pub fn step(&mut self, axial_speed: f64, steady_induced_ratio: f64, tip_speed: f64, dt: f64) {
+        let tau = self.time_constant(axial_speed, steady_induced_ratio * tip_speed);
         let alpha = 1.0 - (-dt.max(0.0) / tau).exp();
         let target = steady_induced_ratio.clamp(0.0, 1.0);
         self.lambda += (target - self.lambda) * alpha;
@@ -117,16 +120,16 @@ mod tests {
         let mut di = DynamicInflow::new(1.0, 0.0);
         let dt = 0.01;
         for _ in 0..20000 {
-            di.step(0.0, 0.07, dt);
+            di.step(0.0, 0.07, 100.0, dt);
         }
         assert!((di.lambda() - 0.07).abs() < 1e-4, "λ = {}", di.lambda());
         // Stability: a huge step must not overshoot the target.
         let mut di = DynamicInflow::new(1.0, 0.0);
-        di.step(0.0, 0.07, 1.0e6);
+        di.step(0.0, 0.07, 100.0, 1.0e6);
         assert!((di.lambda() - 0.07).abs() < 1e-9);
         // Bound: never leaves [0, 1].
         let mut di = DynamicInflow::new(1.0, 0.999);
-        di.step(0.0, 2.0, 0.1);
+        di.step(0.0, 2.0, 100.0, 0.1);
         assert!(di.lambda() <= 1.0);
     }
 
