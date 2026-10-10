@@ -1,0 +1,27 @@
+# Changelog
+
+All notable changes to this workspace are documented here.
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+### Breaking
+- `tpt_aero_stability::plant::LongitudinalPlant::short_period` returns `Option<(f64, f64)>` (`None` when statically unstable).
+- `tpt_aero_rotor::DynamicInflow::step` takes an extra `tip_speed` argument (m/s).
+- `tpt_aero_panel::{beta, prandtl_glauert, karman_tsien}` return `Result<f64, CompressibilityError>` instead of panicking.
+- `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
+
+### Added
+- `naca4_closed`: closed-trailing-edge NACA 4-digit generator for panel solvers.
+- `PanelError::ClockwiseContour`: panel solvers reject clockwise contours.
+- `tpt-aero-cli` crate: `tpt-aero wing case.toml --out polar.csv`, `tpt-aero template wing`, `tpt-aero isa <alt>...`.
+- `VlmError::InvalidFlightCondition`; `VlmModel::solve` validates angle, speed and density.
+- `MachNumber::try_new`, `ReynoldsNumber::try_new`.
+- `tpt_aero::prelude`; examples `isa_table`, `airfoil_cp`, `stability_derivatives`.
+
+### Fixed
+- Longitudinal plant: control-matrix area double count, lift control row, missing `C_Lq` and gravity terms.
+- BEMT: reported iteration count; thrust no longer integrated inside the hub cutout.
+- Dynamic inflow time constant was off by a factor of the tip speed.
+- Frame-convention doc in `tpt-aero-core` now matches the solver.
+- CI checks out `tpt-math`.

@@ -1,0 +1,7 @@
+name: setup-tpt-math
+description: Clone the sibling tpt-math workspace that Cargo.toml path-depends on (../tpt-math).
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: git clone --depth 1 https://github.com/tpt-solutions/tpt-math.git "$GITHUB_WORKSPACE/../tpt-math"

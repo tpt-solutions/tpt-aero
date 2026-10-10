@@ -92,8 +92,10 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 ### tpt-aero-stability
 - [x] Finite-difference stability derivative extraction
 - [x] Analytical stability derivative extraction
-- [x] Derivatives: CLα, Cmq, Cnβ (and other standard longitudinal/lateral-directional derivatives)
-- [x] Control surface effectiveness derivatives: CLδe, Cmδa (and other control derivatives)
+- [x] Derivatives: CLα, Cmα, CLq, Cmq (longitudinal)
+- [ ] Lateral-directional derivatives: Clβ, Cnβ, Cyβ, Clp, Cnr (needs sideslip β in the VLM)
+- [x] Control surface effectiveness derivatives: CLδ, Cmδ (longitudinal flap/elevator)
+- [ ] Aileron/rudder derivatives: Clδa, Cnδr
 - [x] Plant-matrix coupling hook for future `tpt-control` integration
 
 ### tpt-aero-verify (complete)
@@ -129,4 +131,26 @@ Context: `e = CL²/(π·AR·CDi)` is unstable where `CL → 0` for the cambered 
 - [x] Residual −0.047° offset from thin-airfoil α_L0 (−2.077°): decays ~1/AR (AR 5 → −0.101°, 10 → −0.046°, 20 → −0.021°, 40 → −0.010°). A finite-aspect-ratio property of the horseshoe VLM, not a camber-treatment error. Lifting-line theory predicts no shift for an untwisted planar wing, so this is characterised by trend, not validated against an external reference
 - [x] Library remedy: documented (`VlmSolution` near-zero-lift caveat: Oswald ratio ill-conditioned as CL → 0; zero-lift offset ~1/AR). Example guard kept. No formulation change — the Trefftz-style and freestream-wake experiments did not alter results
 - [x] Regression test: flat-wing `CDi/CL²` constant across an alpha sweep (`flat_wing_induced_drag_scales_with_cl_squared`, 1% bound; measured spread ≈ 0.2%)
+
+## Review follow-ups (2026-10)
+
+Done:
+- [x] CI clones sibling `tpt-math`; examples run in CI
+- [x] BEMT: real iteration count, no thrust inside hub cutout
+- [x] `DynamicInflow::step` takes tip speed (unit fix)
+- [x] Longitudinal plant matrix rebuilt; `short_period` returns `Option`
+- [x] VLM rejects non-finite / non-positive flight conditions
+- [x] `compress::*` return `Result`; `MachNumber`/`ReynoldsNumber::try_new`; `naca4` no longer panics
+- [x] `tpt-aero-cli`: TOML wing cases to CSV, `template`, `isa` subcommands
+- [x] Panel: `naca4_closed` (sharp TE, no gap panel), CCW winding check, `doublet.rs` docs corrected, NACA 0012 validated (Cp_min, lift slope)
+- [x] Prelude + `isa_table`, `airfoil_cp`, `stability_derivatives` examples
+
+Open:
+- [ ] Panel imports `lu_solve` from vlm (layering); move to core / tpt-math
+- [ ] VLM: opt-in cosine spanwise spacing; wake along freestream; flat AIC + cache across alpha sweeps
+- [ ] Lateral-directional derivatives, sideslip, trim solver, multi-surface + control surfaces
+- [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
+- [ ] `serde` feature on result types, VTK export, CLI: rotor/stability subcommands, mdBook, cargo-generate templates
+- [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; criterion benches (bench-smoke is a no-op)
+- [ ] Tag v0.1.0 and publish in dependency order
 
