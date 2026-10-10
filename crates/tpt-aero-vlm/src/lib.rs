@@ -28,11 +28,13 @@
 
 extern crate alloc;
 
+pub mod aircraft;
 pub mod lattice;
 pub mod linalg;
 pub mod solver;
 pub mod vortex;
 
+pub use aircraft::Surface;
 pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError};
 pub use linalg::{cholesky_spd, lu_solve, lu_solve_generic, LuFactors, SolveError};
 pub use solver::{

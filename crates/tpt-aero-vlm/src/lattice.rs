@@ -120,6 +120,27 @@ pub struct LatticeElement {
 }
 
 impl LatticeElement {
+    /// Rigidly roll this element about the body *x* axis by `roll_rad`
+    /// (right-hand rule: `+y` toward `+z`), then translate by `offset`.
+    ///
+    /// Directions (normal, span axis) rotate only; points translate too. The
+    /// strip index is untouched (see [`Lattice::combine`]).
+    #[must_use]
+    pub fn transformed(&self, roll_rad: f64, offset: Vec3<f64>) -> Self {
+        let (s, c) = roll_rad.sin_cos();
+        let rot = |v: Vec3<f64>| Vec3::new(v.x, v.y * c - v.z * s, v.y * s + v.z * c);
+        let place = |p: Vec3<f64>| rot(p) + offset;
+        Self {
+            bound_a: place(self.bound_a),
+            bound_b: place(self.bound_b),
+            collocation: place(self.collocation),
+            flat_normal: rot(self.flat_normal),
+            span_axis: rot(self.span_axis),
+            x_te: self.x_te + offset.x,
+            ..self.clone()
+        }
+    }
+
     /// Effective surface slope angle (rad) at the collocation point for a
     /// given local twist: geometric twist minus camber-line incidence
     /// (a surface sloping up toward +x, dz/dx > 0, tilts its unit normal to
@@ -270,6 +291,47 @@ impl Lattice {
             elements,
             n_span,
             n_chord,
+        })
+    }
+
+    /// A copy of this lattice rolled about the body *x* axis by `roll_rad` and
+    /// translated by `offset` (see [`LatticeElement::transformed`]).
+    #[must_use]
+    pub fn transformed(&self, roll_rad: f64, offset: Vec3<f64>) -> Self {
+        Self {
+            elements: self
+                .elements
+                .iter()
+                .map(|e| e.transformed(roll_rad, offset))
+                .collect(),
+            n_span: self.n_span,
+            n_chord: self.n_chord,
+        }
+    }
+
+    /// Merge several lattices into one model of a multi-surface configuration.
+    ///
+    /// Strip indices are offset so every surface keeps its own strips, and
+    /// `n_span` becomes the total strip count. `n_chord` is informational
+    /// only (taken from the first part).
+    ///
+    /// # Errors
+    /// [`LatticeError::InvalidResolution`] if `parts` is empty.
+    pub fn combine(parts: &[Lattice]) -> Result<Self, LatticeError> {
+        let first = parts.first().ok_or(LatticeError::InvalidResolution)?;
+        let mut elements = Vec::with_capacity(parts.iter().map(Lattice::len).sum());
+        let mut strips = 0;
+        for part in parts {
+            elements.extend(part.elements.iter().cloned().map(|mut e| {
+                e.strip += strips;
+                e
+            }));
+            strips += part.n_span;
+        }
+        Ok(Self {
+            elements,
+            n_span: strips,
+            n_chord: first.n_chord,
         })
     }
 

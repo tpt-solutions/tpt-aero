@@ -87,9 +87,12 @@ pub mod prelude {
     pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
     #[cfg(feature = "stability")]
     pub use tpt_aero_stability::{
+        lateral::{lateral_fd, LateralDerivatives},
         longitudinal::{longitudinal_fd, LongitudinalDerivatives},
         plant::{LongitudinalPlant, PlantParameters},
     };
     #[cfg(feature = "vlm")]
-    pub use tpt_aero_vlm::{CamberModel, ReferenceGeometry, VlmModel, VlmSolution};
+    pub use tpt_aero_vlm::{
+        CamberModel, FlightState, ReferenceGeometry, Surface, VlmModel, VlmSolution,
+    };
 }

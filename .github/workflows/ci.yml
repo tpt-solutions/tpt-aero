@@ -48,7 +48,7 @@ jobs:
       - run: cargo test --workspace --doc
       - name: examples run to completion
         run: |
-          for e in wing_vlm propeller_sweep isa_table airfoil_cp stability_derivatives; do
+          for e in wing_vlm propeller_sweep isa_table airfoil_cp stability_derivatives aircraft_stability; do
             cargo run --release -p tpt-aero --example "$e" > /dev/null
           done
       - name: CLI smoke test
