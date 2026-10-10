@@ -104,18 +104,29 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 
 ## Phase 4 — Umbrella Crate, Docs & Release
 
-- [ ] `tpt-aero` umbrella crate: feature-gated re-exports of all sub-crates
-- [ ] Full rustdoc pass across all crates
-- [ ] Doctested usage examples per crate
-- [ ] `examples/` directory: sample wing VLM analysis
-- [ ] `examples/` directory: sample propeller BEMT sweep
-- [ ] Final `cargo-deny` / license audit pass (confirm zero Apache-2.0-only runtime deps)
-- [ ] Version 0.1.0 tagging
-- [ ] Publish readiness check (crates.io or internal registry, per house convention)
+- [x] `tpt-aero` umbrella crate: feature-gated re-exports of all sub-crates
+- [x] Full rustdoc pass across all crates (`RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` clean)
+- [x] Doctested usage examples per crate (all 8 crates have at least one passing doctest)
+- [x] `examples/` directory: sample wing VLM analysis
+- [x] `examples/` directory: sample propeller BEMT sweep
+- [x] Final `cargo-deny` / license audit pass (confirm zero Apache-2.0-only runtime deps) — `cargo deny check` passes all categories
+- [ ] Version 0.1.0 tagging (version is already `0.1.0` in `Cargo.toml`; tag not yet created)
+- [ ] Publish readiness check (crates.io or internal registry, per house convention) — `tpt-aero-core` dry-run passes; umbrella `tpt-aero` requires the sub-crates published first, in dependency order, with the umbrella last
 
-## Future Integration (tracked, not scheduled)
+## Follow-up — VLM Oswald factor near zero lift
 
-- [ ] `tpt-flight-control` / `tpt-multibody-dynamics`: consume `tpt-aero-stability` linearized plant matrices + `tpt-aero-atmo` disturbances for 6-DOF equations of motion
-- [ ] `tpt-physics` (CFD): define handoff boundary for high-AoA/separated-flow regimes where VLM/Panel methods fail
-- [ ] `tpt-systems-optimisation`: gradient-based MDO using differentiable VLM/BEMT
-- [ ] `tpt-fem-modal`: aeroelastic coupling (flutter analysis) via unsteady aerodynamics + structural mode shapes
+Context: `e = CL²/(π·AR·CDi)` is unstable where `CL → 0` for the cambered wing (NACA m=0.02, p=0.4; AR 10). Flat-wing `CDi/CL²` is constant (~0.032) across the sweep.
+
+- [x] `examples/wing_vlm.rs`: report Oswald factor only for `|CL| ≥ 0.1`, otherwise `n/a`
+- [x] Tried Trefftz-style induced drag (trailing legs only) — no change in output (bound-segment term cancels by reciprocity); reverted
+- [x] Tried freestream-aligned wake for the drag term only — inconsistent with the body-aligned solve; reverted
+- [x] Fourier-fit the spanwise `strip_cl` at −2° / 0° / 4°: odd modes a3, a5 carry the induced drag at near-zero CL (mode-based e ≈ 0.53 at −2°, ≈ 0.91 at 0°)
+- [x] Thin-airfoil zero-lift angle for NACA m=0.02, p=0.4: α_L0 = −2.077° (corrected integral)
+- [x] VLM zero-lift angle: −2.171° (32×4), −2.124° (64×8) — the 4-chord-panel value is the outlier; see the convergence items below
+- [x] Measure VLM zero-lift angle vs chordwise panel count (n_span = 32): n_chord 4 → −2.171°, 8 → −2.123°, 16 → −2.124°. Chordwise error converges by 8 panels
+- [x] Measure VLM zero-lift angle vs spanwise panel count (n_chord = 8): n_span 16 → −2.119°, 32 → −2.123°, 64 → −2.124°. Spanwise resolution is not the driver
+- [x] Test freestream-aligned wake for the zero-lift angle: −2.1232° (unchanged). Wake alignment ruled out; solver reverted
+- [x] Residual −0.047° offset from thin-airfoil α_L0 (−2.077°): decays ~1/AR (AR 5 → −0.101°, 10 → −0.046°, 20 → −0.021°, 40 → −0.010°). A finite-aspect-ratio property of the horseshoe VLM, not a camber-treatment error. Lifting-line theory predicts no shift for an untwisted planar wing, so this is characterised by trend, not validated against an external reference
+- [x] Library remedy: documented (`VlmSolution` near-zero-lift caveat: Oswald ratio ill-conditioned as CL → 0; zero-lift offset ~1/AR). Example guard kept. No formulation change — the Trefftz-style and freestream-wake experiments did not alter results
+- [x] Regression test: flat-wing `CDi/CL²` constant across an alpha sweep (`flat_wing_induced_drag_scales_with_cl_squared`, 1% bound; measured spread ≈ 0.2%)
+

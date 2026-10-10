@@ -101,11 +101,23 @@ impl ReferenceGeometry {
 }
 
 /// Non-dimensional aerodynamic result of a VLM analysis (primal `f64`).
+///
+/// # Near-zero-lift caveat
+///
+/// `cdi` is a small residual of the discrete force, not a separately modeled
+/// quantity. Oswald-style ratios built from it, `C_L² / (π·AR·C_Di)`, are
+/// ill-conditioned as `C_L → 0`, and should be reported only away from zero
+/// lift (|C_L| ≳ 0.1 for the lattices used in the examples). Likewise, a
+/// cambered section's zero-lift angle is offset from the thin-airfoil value by
+/// roughly `1/AR` (about −0.05° at AR 10 for NACA m = 0.02, p = 0.4, against
+/// −2.077° thin-airfoil), so small-|C_L| results near that angle carry that
+/// offset.
 #[derive(Debug, Clone)]
 pub struct VlmSolution {
     /// Total lift coefficient.
     pub cl: f64,
-    /// Induced drag coefficient (near-field, vortex drag only).
+    /// Induced drag coefficient (near-field, vortex drag only). See the
+    /// near-zero-lift caveat on this type.
     pub cdi: f64,
     /// Pitching-moment coefficient about the reference point (nose-up +).
     pub cm: f64,
@@ -265,8 +277,10 @@ impl VlmModel {
         // Native solve: f64 uses the tpt-math dense partial-pivot LU; other
         // Real types (dual numbers) use the from-scratch generic LU.
         let gamma: Vec<R> = if core::any::TypeId::of::<R>() == core::any::TypeId::of::<f64>() {
-            let af: Vec<Vec<f64>> =
-                a.iter().map(|row| row.iter().map(|x| x.to_f64()).collect()).collect();
+            let af: Vec<Vec<f64>> = a
+                .iter()
+                .map(|row| row.iter().map(|x| x.to_f64()).collect())
+                .collect();
             let bf: Vec<f64> = rhs.iter().map(|x| x.to_f64()).collect();
             lu_solve(&af, &bf)?.into_iter().map(R::from_f64).collect()
         } else {
@@ -330,13 +344,7 @@ impl VlmModel {
     /// contribution at the midpoint, and dropping it leaves the physical
     /// induction. The 2D limit (single wide strip) then yields exactly zero
     /// induced drag, as it must.
-    fn local_velocity<R: Real>(
-        &self,
-        j: usize,
-        gamma: &[R],
-        v: &Vec3<R>,
-        d: &Vec3<R>,
-    ) -> Vec3<R> {
+    fn local_velocity<R: Real>(&self, j: usize, gamma: &[R], v: &Vec3<R>, d: &Vec3<R>) -> Vec3<R> {
         let elements = self.lattice.elements();
         let (ba, bb) = elements[j].bounds::<R>();
         let mid = (ba + bb).scaled(R::half());

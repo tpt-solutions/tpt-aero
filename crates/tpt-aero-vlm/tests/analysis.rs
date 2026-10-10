@@ -59,7 +59,10 @@ fn rectangular_wing_matches_lifting_line() {
     assert_eq!(sol.strip_cl.len(), 24);
     let mid = sol.strip_cl[12];
     let tip = sol.strip_cl[23];
-    assert!(tip < mid, "tip loading {tip} must be below mid {mid} (tip loss)");
+    assert!(
+        tip < mid,
+        "tip loading {tip} must be below mid {mid} (tip loss)"
+    );
     assert!(tip > 0.0, "tip must keep positive loading, got {tip}");
     for i in 0..12 {
         assert!(
@@ -85,9 +88,8 @@ fn symmetric_wing_zero_alpha_zero_roll_yaw() {
 fn positive_camber_gives_positive_lift_at_zero_alpha() {
     // NACA 24-series-like camber (2% at 40%): thin-airfoil C_L(0) ≈ +0.22.
     let wing = WingPlanform::rectangular(10.0, 1.0);
-    let model =
-        VlmModel::from_planform(&wing, 24, 4, CamberModel::Naca4 { m: 0.02, p: 0.4 })
-            .expect("valid");
+    let model = VlmModel::from_planform(&wing, 24, 4, CamberModel::Naca4 { m: 0.02, p: 0.4 })
+        .expect("valid");
     let sol = model.solve(0.0, V_INF, RHO, &[]).expect("solvable");
     assert!(
         sol.cl > 0.1 && sol.cl < 0.35,
@@ -222,12 +224,7 @@ fn differentiable_twist_gradient_matches_finite_difference() {
         .iter()
         .position(|e| e.strip == 6)
         .expect("strip 6 exists");
-    let base: Vec<f64> = model
-        .lattice()
-        .elements()
-        .iter()
-        .map(|e| e.twist)
-        .collect();
+    let base: Vec<f64> = model.lattice().elements().iter().map(|e| e.twist).collect();
 
     let twist_val = 1.0 * DEG;
     let dual_twists: Vec<Dual<f64, 1>> = base
@@ -263,5 +260,29 @@ fn differentiable_twist_gradient_matches_finite_difference() {
     assert!(
         (ad_grad - fd_grad).abs() < 1e-6,
         "ad {ad_grad} vs fd {fd_grad}"
+    );
+}
+
+#[test]
+fn flat_wing_induced_drag_scales_with_cl_squared() {
+    // For a flat rectangular wing the induced drag is proportional to C_L²
+    // away from zero lift, so C_Di / C_L² is constant across the sweep
+    // (measured spread ≈ 0.2 % over −4°..+8°). A regression here would mean
+    // the induced-drag projection picked up a non-quadratic residual.
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    let model = VlmModel::from_planform(&wing, 32, 4, CamberModel::None).expect("valid");
+    let ratios: Vec<f64> = [-4.0, -2.0, -1.0, 2.0, 4.0, 8.0]
+        .iter()
+        .map(|deg: &f64| {
+            let sol = model.solve(deg * DEG, V_INF, RHO, &[]).expect("solvable");
+            sol.cdi / (sol.cl * sol.cl)
+        })
+        .collect();
+    let lo = ratios.iter().cloned().fold(f64::INFINITY, f64::min);
+    let hi = ratios.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        (hi - lo) / lo < 0.01,
+        "C_Di/C_L² spread {:.4}% over sweep: {ratios:?}",
+        100.0 * (hi - lo) / lo
     );
 }
