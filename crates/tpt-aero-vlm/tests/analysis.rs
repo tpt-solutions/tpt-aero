@@ -358,3 +358,52 @@ fn prepared_solve_validates_flight_condition() {
         Err(tpt_aero_vlm::VlmError::InvalidFlightCondition)
     ));
 }
+
+#[test]
+fn planform_twist_is_applied_and_matches_the_twist_slice() {
+    use tpt_aero_core::{Vec3, WingSection};
+    // A wing with -4 deg washout at both tips, built two ways: twist stored
+    // in the planform sections, and twist supplied per solve.
+    let section = |y: f64, twist_deg: f64| WingSection {
+        le: Vec3::new(0.0, y, 0.0),
+        chord: 1.0,
+        twist: twist_deg * DEG,
+    };
+    let twisted = WingPlanform::from_sections(vec![
+        section(-5.0, -4.0),
+        section(0.0, 0.0),
+        section(5.0, -4.0),
+    ])
+    .unwrap();
+    let plain = WingPlanform::from_sections(vec![
+        section(-5.0, 0.0),
+        section(0.0, 0.0),
+        section(5.0, 0.0),
+    ])
+    .unwrap();
+    let m_twisted = VlmModel::from_planform(&twisted, 20, 3, CamberModel::None).unwrap();
+    let m_plain = VlmModel::from_planform(&plain, 20, 3, CamberModel::None).unwrap();
+
+    let via_planform = m_twisted.solve(5.0 * DEG, V_INF, RHO, &[]).unwrap();
+    let baseline = m_plain.solve(5.0 * DEG, V_INF, RHO, &[]).unwrap();
+    assert!(
+        via_planform.cl < baseline.cl - 0.01,
+        "washout must cost lift: {} vs {}",
+        via_planform.cl,
+        baseline.cl
+    );
+
+    // Same twist, delivered as the per-element slice on the untwisted wing.
+    let slice: Vec<f64> = m_twisted
+        .lattice()
+        .elements()
+        .iter()
+        .map(|e| e.twist)
+        .collect();
+    let via_slice = m_plain.solve(5.0 * DEG, V_INF, RHO, &slice).unwrap();
+    assert!((via_planform.cl - via_slice.cl).abs() < 1e-9);
+    assert!((via_planform.cdi - via_slice.cdi).abs() < 1e-9);
+    // And the prepared sweep honours it too.
+    let swept = m_twisted.solve_sweep(&[5.0 * DEG], V_INF, RHO).unwrap();
+    assert!((swept[0].cl - via_planform.cl).abs() < 1e-9);
+}

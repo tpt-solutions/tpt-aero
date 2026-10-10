@@ -461,7 +461,10 @@ impl VlmModel {
             return Err(VlmError::DimensionMismatch);
         }
         let zero = R::zero();
-        let twist_at = |i: usize| twists.get(i).copied().unwrap_or(zero);
+        // Effective twist = the planform's own geometric twist plus the
+        // per-solve perturbation (the differentiable design variable).
+        let twist_at =
+            |i: usize| R::from_f64(elements[i].twist) + twists.get(i).copied().unwrap_or(zero);
 
         // Freestream (body frame). The horseshoe trailing legs convect along
         // the fixed body +x axis: this keeps the AIC matrix independent of
@@ -528,7 +531,10 @@ impl VlmModel {
         let elements = self.lattice.elements();
         let n = elements.len();
         let d = Vec3::new(1.0, 0.0, 0.0);
-        let normals: Vec<Vec3<f64>> = elements.iter().map(|e| e.normal_for_twist(0.0)).collect();
+        let normals: Vec<Vec3<f64>> = elements
+            .iter()
+            .map(|e| e.normal_for_twist(e.twist))
+            .collect();
         let mut a = vec![vec![0.0; n]; n];
         for (i, ei) in elements.iter().enumerate() {
             let cp = ei.cp::<f64>();
