@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations; accepts thickness up to 40 %.
 
 ### Added
+- `phugoid::FullLongitudinalPlant`: four-state longitudinal plant with speed/drag couplings; short-period and phugoid modes (phugoid checked against Lanchester: omega*V constant, damping tracks 1/(sqrt2 L/D)). `drag_alpha_fd` helper.
+- `controls::control_derivatives`: lift, drag, side force and the three moments per radian of any named control.
 - `tpt_aero_stability::trim::trim_level_flight`: Newton trim of angle of attack and elevator for level flight (plus thrust required).
 - `LateralPlant`/`LateralParameters`/`LateralModes`: lateral-directional state-space plant `[beta, p, r, phi]` with Dutch-roll, roll-subsidence and spiral modes; `modes::eigenvalues4` (no-dependency 4x4 eigenvalues).
 - Control surfaces: `Surface::with_control`, `VlmModel::controls`/`control_index`/`control_twists` (elevator, aileron, rudder as incidence changes aft of a hinge), `VlmSolution::stability_roll_yaw`. Aileron roll authority and adverse yaw validated against lifting line.

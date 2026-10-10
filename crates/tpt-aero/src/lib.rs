@@ -87,8 +87,10 @@ pub mod prelude {
     pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
     #[cfg(feature = "stability")]
     pub use tpt_aero_stability::{
+        controls::{control_derivatives, ControlDerivatives},
         lateral::{lateral_fd, LateralDerivatives, LateralParameters, LateralPlant},
         longitudinal::{longitudinal_fd, LongitudinalDerivatives},
+        phugoid::{drag_alpha_fd, FullLongitudinalParameters, FullLongitudinalPlant},
         plant::{LongitudinalPlant, PlantParameters},
         trim::{trim_level_flight, TrimRequest},
     };

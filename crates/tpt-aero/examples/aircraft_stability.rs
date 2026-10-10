@@ -27,11 +27,19 @@ fn main() {
     let build = |x_cg_over_c: f64| build_with(&wing, x_cg_over_c);
     fn build_with(wing: &WingPlanform, x_cg_over_c: f64) -> VlmModel {
         VlmModel::from_surfaces(&[
-            Surface::horizontal(wing.clone(), 20, 3),
+            Surface::horizontal(wing.clone(), 20, 3).with_control(
+                "aileron",
+                0.75,
+                2.5,
+                4.8,
+                ControlSymmetry::Antisymmetric,
+            ),
             Surface::horizontal(WingPlanform::rectangular(4.0, 0.6), 10, 3)
                 .at(4.0, 0.0, 0.0)
                 .with_control("elevator", 0.6, 0.0, 2.0, ControlSymmetry::Symmetric),
-            Surface::vertical(fin_planform(1.5, 0.9, 0.5), 6, 3).at(3.8, 0.0, 0.0),
+            Surface::vertical(fin_planform(1.5, 0.9, 0.5), 6, 3)
+                .at(3.8, 0.0, 0.0)
+                .with_control("rudder", 0.6, 0.0, 1.5, ControlSymmetry::Symmetric),
         ])
         .expect("valid configuration")
         .with_reference(ReferenceGeometry {
@@ -129,6 +137,58 @@ Level-flight trim (600 kg, CG at 25 % MAC, CD0 = 0.03):"
             ),
             Err(e) => println!("{speed:>8.0}  trim failed: {e}"),
         }
+    }
+
+    // Both longitudinal oscillations at the 50 m/s trim point.
+    let req = TrimRequest {
+        weight_n: 600.0 * 9.80665,
+        v_inf: v,
+        density: rho,
+        elevator: "elevator",
+        cd0: 0.03,
+    };
+    let t = trim_level_flight(&trim_model, &req).expect("trims");
+    let dt = longitudinal_fd(&trim_model, t.alpha_rad, v, rho, 1e-4);
+    let long_params = FullLongitudinalParameters {
+        v_inf: v,
+        chord: c,
+        area: wing.area(),
+        density: rho,
+        mass: 600.0,
+        inertia_y: 900.0,
+        cl: t.cl,
+        cd: t.cdi + 0.03,
+        cd_alpha: drag_alpha_fd(&trim_model, t.alpha_rad, v, rho).expect("solvable"),
+    };
+    let modes = FullLongitudinalPlant::from_derivatives(&dt, &long_params)
+        .and_then(|p| p.modes())
+        .expect("oscillatory modes");
+    println!(
+        "
+Longitudinal modes at 50 m/s trim (L/D {:.1}):",
+        t.cl / long_params.cd
+    );
+    println!(
+        "  short period: wn {:.2} rad/s, zeta {:.2}",
+        modes.short_period_wn, modes.short_period_zeta
+    );
+    println!(
+        "  phugoid:      wn {:.3} rad/s, zeta {:.3}  (Lanchester wn {:.3})",
+        modes.phugoid_wn,
+        modes.phugoid_zeta,
+        2.0_f64.sqrt() * 9.80665 / v
+    );
+
+    println!(
+        "
+Control power per radian of command (positive = trailing edge down on +y):"
+    );
+    for name in ["elevator", "aileron", "rudder"] {
+        let cd = control_derivatives(&trim_model, name, alpha, v, rho).expect("control exists");
+        println!(
+            "  {name:9} dCL {:+.3}  dCm {:+.3}  dCy {:+.3}  dCl {:+.3}  dCn {:+.3}",
+            cd.cl, cd.cm, cd.cy, cd.c_roll, cd.c_yaw
+        );
     }
 
     println!(
