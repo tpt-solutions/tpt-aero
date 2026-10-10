@@ -297,6 +297,30 @@ pub fn run_derivatives(case_toml: &str, alpha_deg: f64) -> Result<String, CliErr
     Ok(out)
 }
 
+/// Solve one angle of attack of the case's wing and render the lattice with
+/// its circulation as legacy ASCII VTK (open in ParaView).
+///
+/// # Errors
+/// [`CliError`] for a malformed case or a failed solve.
+pub fn run_vtk(case_toml: &str, alpha_deg: f64) -> Result<String, CliError> {
+    let Built {
+        model,
+        speed,
+        density,
+        ..
+    } = build(case_toml)?;
+    let alpha = finite("alpha", alpha_deg)?.to_radians();
+    let sol = model
+        .solve(alpha, speed, density, &[])
+        .map_err(|e| CliError::Solve(e.to_string()))?;
+    tpt_aero::vlm::export::to_vtk(
+        &model,
+        &format!("tpt-aero VLM alpha={alpha_deg} deg V={speed} m/s"),
+        Some(&sol.gamma),
+    )
+    .map_err(|e| CliError::Solve(e.to_string()))
+}
+
 /// ISA table rows (`altitude_m,temperature_k,pressure_pa,density,speed_of_sound`).
 ///
 /// # Errors

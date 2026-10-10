@@ -2,13 +2,14 @@
 
 use std::process::ExitCode;
 
-use tpt_aero_cli::{isa_csv, run_derivatives, run_wing, TEMPLATE};
+use tpt_aero_cli::{isa_csv, run_derivatives, run_vtk, run_wing, TEMPLATE};
 
 const USAGE: &str = "tpt-aero - aerodynamics from the command line
 
 USAGE:
     tpt-aero wing <case.toml> [--out <file.csv>]   run an alpha sweep (CSV to stdout by default)
     tpt-aero derivatives <case.toml> [--alpha <deg>]   stability derivatives (default alpha 2)
+    tpt-aero vtk <case.toml> [--alpha <deg>] [--out <file.vtk>]   lattice + circulation for ParaView
     tpt-aero template wing                         print a commented case file
     tpt-aero isa <altitude_m>...                   ISA properties as CSV
     tpt-aero --help
@@ -38,6 +39,35 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             _ => Err("usage: tpt-aero template wing".into()),
         },
+        Some("vtk") => {
+            let path = args
+                .get(1)
+                .ok_or("usage: tpt-aero vtk <case.toml> [--alpha <deg>] [--out <file.vtk>]")?;
+            let (mut alpha, mut out_path) = (2.0, None);
+            let mut rest = args[2..].iter();
+            while let Some(flag) = rest.next() {
+                let value = rest.next().ok_or(format!("{flag} needs a value"))?;
+                match flag.as_str() {
+                    "--alpha" => {
+                        alpha = value
+                            .parse::<f64>()
+                            .map_err(|_| "--alpha must be a number".to_string())?;
+                    }
+                    "--out" => out_path = Some(value),
+                    other => return Err(format!("unexpected argument: {other}")),
+                }
+            }
+            let text =
+                std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            let vtk = run_vtk(&text, alpha).map_err(|e| e.to_string())?;
+            match out_path {
+                Some(p) => std::fs::write(p, vtk).map_err(|e| format!("cannot write {p}: {e}")),
+                None => {
+                    print!("{vtk}");
+                    Ok(())
+                }
+            }
+        }
         Some("derivatives") => {
             let path = args
                 .get(1)

@@ -57,6 +57,8 @@ jobs:
           cargo run -q -p tpt-aero-cli -- wing wing.toml --out polar.csv
           test "$(wc -l < polar.csv)" -eq 9
           cargo run -q -p tpt-aero-cli -- derivatives wing.toml --alpha 4 | grep -q cl_beta
+          cargo run -q -p tpt-aero-cli -- vtk wing.toml --alpha 4 --out lattice.vtk
+          grep -q "SCALARS gamma" lattice.vtk
 
   no_std:
     name: no_std build (thumbv6m + wasm)

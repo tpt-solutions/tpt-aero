@@ -83,3 +83,13 @@ fn derivatives_report_expected_signs() {
     assert!(get("cl_p") < 0.0, "roll damping");
     assert!(run_derivatives(TEMPLATE, f64::NAN).is_err());
 }
+
+#[test]
+fn vtk_export_contains_the_lattice_and_circulation() {
+    let vtk = tpt_aero_cli::run_vtk(TEMPLATE, 4.0).expect("valid case");
+    assert!(vtk.starts_with("# vtk DataFile Version 3.0"));
+    // Template mesh: 24 x 4 = 96 panels.
+    assert!(vtk.contains("POINTS 384 float"));
+    assert!(vtk.contains("SCALARS gamma float 1"));
+    assert!(tpt_aero_cli::run_vtk(TEMPLATE, f64::NAN).is_err());
+}

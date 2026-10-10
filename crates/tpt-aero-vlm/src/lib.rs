@@ -29,6 +29,7 @@
 extern crate alloc;
 
 pub mod aircraft;
+pub mod export;
 pub mod lattice;
 pub mod linalg;
 pub mod solver;
