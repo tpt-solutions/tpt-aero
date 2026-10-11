@@ -19,11 +19,12 @@ tpt-aero-vlm = { workspace = true }
 tpt-aero-panel = { workspace = true }
 tpt-aero-rotor = { workspace = true }
 tpt-aero-atmo = { workspace = true }
+tpt-aero-stability = { workspace = true }
 proptest = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["tpt-aero-core/std", "tpt-aero-vlm/std", "tpt-aero-panel/std", "tpt-aero-rotor/std", "tpt-aero-atmo/std", "proptest/std"]
+std = ["tpt-aero-core/std", "tpt-aero-vlm/std", "tpt-aero-panel/std", "tpt-aero-rotor/std", "tpt-aero-atmo/std", "tpt-aero-stability/std", "proptest/std"]
 
 [lints]
 workspace = true

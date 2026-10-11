@@ -9,6 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `optimize_twist_shape` (type `TwistShapeOptimum`): minimises induced drag over a cubic spanwise twist law `c₁η + c₂η² + c₃η³` with a derivative-free compass search. The linear washout of `optimize_linear_twist` is the `c₂ = c₃ = 0` slice, so the search can only match or beat it on the same planform (up to the search tolerance).
 - `VlmModel::influence_kernel` and `VlmModel::prepare_with_kernel` (type `InfluenceKernel`): the horseshoe geometry is built once and reused across twists. `prepare_with_twists` now uses this path.
 - Lattice strip indices and `strip_cl` run from the −y tip to the +y tip (the old docs said root-side first).
 - `validity_flags` and `ValidityFlags`: independent checks of |α| and |β| ≤ 15°, M < 0.7 and Re ≥ 1e5, with the limits exported as constants.

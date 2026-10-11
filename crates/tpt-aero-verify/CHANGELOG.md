@@ -9,6 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `trim_request` strategy (type `TrimRequestParams`, with `density()` and `request()`) for level-flight trim, with property tests: generated requests are never rejected as invalid, and any returned trim satisfies the lift residual and the ±20° envelope.
 - `section_polar`, `flight_condition` and `control_deflection` strategies, with property tests: polar lookups stay within the table's range and match the linear slope, ISA density falls with altitude, and sampled flight conditions are inside the ISA range.
 
 ### Added

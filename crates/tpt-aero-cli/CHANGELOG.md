@@ -9,6 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `wing --mesh-sweep N,N,...`: C_L and C_Di at each spanwise strip count, as `n_span,cl,cdi` CSV. Needs an explicit `mesh.n_span` in the case; conflicts with `--check-mesh`, `--svg` and `--spanwise`.
 - `trim --csv`: the trim report as `quantity,value,unit` rows.
 - `rotor --collective-sweep START:STOP:STEP` (degrees) and `rotor --speed-sweep START:STOP:STEP` (m/s, with an advance-ratio column `J = π λ_c`).
 - `wing --spanwise DEG`: spanwise strip loading at one angle.

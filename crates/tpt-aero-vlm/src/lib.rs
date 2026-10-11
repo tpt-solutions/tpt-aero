@@ -39,7 +39,7 @@ pub mod vortex;
 pub use aircraft::{Control, ControlRegion, ControlSymmetry, Surface};
 pub use avl::{parse as parse_avl, AvlDeck, AvlError};
 pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError, SpanSpacing};
-pub use optimize::{optimize_linear_twist, TwistOptimum};
+pub use optimize::{optimize_linear_twist, optimize_twist_shape, TwistOptimum, TwistShapeOptimum};
 pub use solver::{
     validity_flags, FlightState, InfluenceKernel, PreparedVlm, ReferenceGeometry, StateLoads,
     ValidityFlags, VlmError, VlmModel, VlmSolution, VlmSolutionFields, WakeModel,

@@ -886,6 +886,7 @@ dependencies = [
  "tpt-aero-core",
  "tpt-aero-panel",
  "tpt-aero-rotor",
+ "tpt-aero-stability",
  "tpt-aero-vlm",
 ]
 

@@ -7,9 +7,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use tpt_aero_cli::{
     aircraft_report, avl_import_summary, isa_table, rotor_text, run_derivatives,
     run_derivatives_json, run_rotor, run_rotor_sweep_over, run_trim, run_trim_speed_sweep, run_vtk,
-    run_wing, run_wing_spanwise, trim_csv, trim_text, wing_mesh_check, wing_polar_svg, wing_to_avl,
-    wing_warnings, SweepVariable, TrimKind, AIRCRAFT_TEMPLATE, GLIDER_TEMPLATE, QUADROTOR_TEMPLATE,
-    ROTOR_TEMPLATE, TEMPLATE, UAV_TEMPLATE,
+    run_wing, run_wing_spanwise, trim_csv, trim_text, wing_mesh_check, wing_mesh_sweep,
+    wing_polar_svg, wing_to_avl, wing_warnings, SweepVariable, TrimKind, AIRCRAFT_TEMPLATE,
+    GLIDER_TEMPLATE, QUADROTOR_TEMPLATE, ROTOR_TEMPLATE, TEMPLATE, UAV_TEMPLATE,
 };
 
 /// Aerodynamics from the command line: VLM wings, BEMT rotors, trim and
@@ -34,8 +34,17 @@ enum Command {
         #[arg(long, value_name = "FILE")]
         svg: Option<PathBuf>,
         /// Print a mesh-convergence estimate instead of the sweep.
-        #[arg(long, conflicts_with_all = ["svg", "spanwise"])]
+        #[arg(long, conflicts_with_all = ["svg", "spanwise", "mesh_sweep"])]
         check_mesh: bool,
+        /// Print C_L and C_Di at each of these spanwise strip counts (comma-separated)
+        /// instead of the sweep, e.g. `--mesh-sweep 8,16,32`.
+        #[arg(
+            long,
+            value_name = "N,N,...",
+            value_delimiter = ',',
+            conflicts_with_all = ["svg", "spanwise", "check_mesh"]
+        )]
+        mesh_sweep: Option<Vec<usize>>,
         /// Print the spanwise lift distribution at this angle (deg) instead of the sweep.
         #[arg(
             long,
@@ -257,6 +266,7 @@ fn run(command: Command) -> Result<(), String> {
             out,
             svg,
             check_mesh,
+            mesh_sweep,
             spanwise,
         } => {
             let text = read_case(&case)?;
@@ -266,6 +276,10 @@ fn run(command: Command) -> Result<(), String> {
             if check_mesh {
                 let report = wing_mesh_check(&text).map_err(|e| e.to_string())?;
                 return emit(&report, out.as_deref());
+            }
+            if let Some(counts) = mesh_sweep {
+                let csv = wing_mesh_sweep(&text, &counts).map_err(|e| e.to_string())?;
+                return emit(&csv, out.as_deref());
             }
             if let Some(alpha) = spanwise {
                 let csv = run_wing_spanwise(&text, alpha).map_err(|e| e.to_string())?;

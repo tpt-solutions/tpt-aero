@@ -629,6 +629,40 @@ pub fn wing_mesh_check(case_toml: &str) -> Result<String, CliError> {
     Ok(out)
 }
 
+/// Lift and induced-drag coefficients at the first sweep angle for each spanwise
+/// strip count in `counts`, as CSV (`n_span,cl,cdi`). Unlike [`wing_mesh_check`],
+/// which only says where the lift converges, this shows the whole table.
+///
+/// # Errors
+/// [`CliError::Invalid`] for an empty list, a zero count, or a case without an
+/// explicit `mesh.n_span`; otherwise as [`run_wing`].
+pub fn wing_mesh_sweep(case_toml: &str, counts: &[usize]) -> Result<String, CliError> {
+    if counts.is_empty() || counts.contains(&0) {
+        return Err(CliError::Invalid(
+            "mesh sweep needs one or more strip counts, each at least 1".into(),
+        ));
+    }
+    let case: Case = toml::from_str(case_toml).map_err(|e| CliError::Parse(e.to_string()))?;
+    let base_n = case.mesh.n_span;
+    if !case_toml.contains(&format!("n_span = {base_n}")) {
+        return Err(CliError::Invalid(
+            "mesh sweep needs an explicit mesh.n_span in the case file".into(),
+        ));
+    }
+    let alpha = case.conditions.alpha.start.to_radians();
+    let mut out = String::from("n_span,cl,cdi\n");
+    for &n in counts {
+        let edited = case_toml.replacen(&format!("n_span = {base_n}"), &format!("n_span = {n}"), 1);
+        let built = build(&edited)?;
+        let sol = built
+            .model
+            .solve(alpha, built.speed, built.density, &[])
+            .map_err(|e| CliError::Solve(e.to_string()))?;
+        out.push_str(&format!("{n},{:.8},{:.8}\n", sol.cl, sol.cdi));
+    }
+    Ok(out)
+}
+
 /// The lift-drag polar of a wing case as a standalone SVG: `C_L` against `C_D`,
 /// from the same sweep [`run_wing`] solves.
 ///
