@@ -414,11 +414,11 @@ impl PreparedVlm<'_> {
         let gamma = self.lu.solve(&rhs)?;
         let vlocs: Vec<Vec3<f64>> = (0..n)
             .map(|j| {
-                let (ba, bb) = elements[j].bounds::<f64>();
+                let (p0, p1) = elements[j].bounds::<f64>();
                 let row = &self.influence[j * n..(j + 1) * n];
                 row.iter()
                     .zip(&gamma)
-                    .fold(air_at((ba + bb).scaled(0.5)), |acc, (u, g)| {
+                    .fold(air_at((p0 + p1).scaled(0.5)), |acc, (u, g)| {
                         acc + u.scaled(*g)
                     })
             })
@@ -907,9 +907,9 @@ impl VlmModel {
             let cp = ei.cp::<R>();
             rhs[i] = v.dot(&ni).neg();
             for (j, ej) in elements.iter().enumerate() {
-                let (ba, bb) = ej.bounds::<R>();
-                let vel = horseshoe_velocity(&ba, &bb, &d, &cp, R::one())
-                    + self.image_horseshoe(&ba, &bb, &d, &cp, R::one());
+                let (p0, p1) = ej.bounds::<R>();
+                let vel = horseshoe_velocity(&p0, &p1, &d, &cp, R::one())
+                    + self.image_horseshoe(&p0, &p1, &d, &cp, R::one());
                 a[i][j] = ni.dot(&vel);
             }
         }
@@ -992,18 +992,18 @@ impl VlmModel {
         for ei in elements {
             let cp = ei.cp::<f64>();
             for ej in elements {
-                let (ba, bb) = ej.bounds::<f64>();
+                let (p0, p1) = ej.bounds::<f64>();
                 aic.push(
-                    horseshoe_velocity(&ba, &bb, &d, &cp, 1.0)
-                        + self.image_horseshoe(&ba, &bb, &d, &cp, 1.0),
+                    horseshoe_velocity(&p0, &p1, &d, &cp, 1.0)
+                        + self.image_horseshoe(&p0, &p1, &d, &cp, 1.0),
                 );
             }
         }
         // Velocity at element j's bound midpoint from element k (row-major).
         let mut load = Vec::with_capacity(n * n);
         for (j, ej) in elements.iter().enumerate() {
-            let (ba, bb) = ej.bounds::<f64>();
-            let mid = (ba + bb).scaled(0.5);
+            let (p0, p1) = ej.bounds::<f64>();
+            let mid = (p0 + p1).scaled(0.5);
             for (k, ek) in elements.iter().enumerate() {
                 let (ka, kb) = ek.bounds::<f64>();
                 // Same load model as `local_velocity`: an element's own bound
@@ -1137,8 +1137,8 @@ impl VlmModel {
     /// induced drag, as it must.
     fn local_velocity<R: Real>(&self, j: usize, gamma: &[R], v: &Vec3<R>, d: &Vec3<R>) -> Vec3<R> {
         let elements = self.lattice.elements();
-        let (ba, bb) = elements[j].bounds::<R>();
-        let mid = (ba + bb).scaled(R::half());
+        let (p0, p1) = elements[j].bounds::<R>();
+        let mid = (p0 + p1).scaled(R::half());
         let mut vloc = *v;
         for (k, ek) in elements.iter().enumerate() {
             let (ka, kb) = ek.bounds::<R>();
@@ -1166,10 +1166,10 @@ impl VlmModel {
         let elements = self.lattice.elements();
         let mut total = Vec3::<R>::zero();
         for (j, ej) in elements.iter().enumerate() {
-            let (ba, bb) = ej.bounds::<R>();
+            let (p0, p1) = ej.bounds::<R>();
             let vloc = vlocs[j];
             // b − a points +y for a lift-up Γ.
-            let ell = bb - ba;
+            let ell = p1 - p0;
             total = total + vloc.cross(&ell).scaled(rho * gamma[j]);
         }
         total
@@ -1186,10 +1186,10 @@ impl VlmModel {
         );
         let mut total = Vec3::<R>::zero();
         for (j, ej) in elements.iter().enumerate() {
-            let (ba, bb) = ej.bounds::<R>();
-            let mid = (ba + bb).scaled(R::half());
+            let (p0, p1) = ej.bounds::<R>();
+            let mid = (p0 + p1).scaled(R::half());
             let vloc = vlocs[j];
-            let ell = bb - ba;
+            let ell = p1 - p0;
             let f = vloc.cross(&ell).scaled(rho * gamma[j]);
             let r = mid - r0;
             total = total + r.cross(&f);
@@ -1241,8 +1241,8 @@ impl VlmModel {
         let mut ref_len_per_strip: Vec<f64> = vec![0.0; self.lattice.strip_count()];
         for (j, ej) in elements.iter().enumerate() {
             let vloc = vlocs[j];
-            let (ba, bb) = ej.bounds::<f64>();
-            let ell = bb - ba;
+            let (p0, p1) = ej.bounds::<f64>();
+            let ell = p1 - p0;
             let f = vloc.cross(&ell).scaled(density * gamma[j]);
             force_per_strip[ej.strip] += f.dot(&lift_dir);
         }

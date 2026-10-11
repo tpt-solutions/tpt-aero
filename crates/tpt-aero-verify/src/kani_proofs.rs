@@ -24,15 +24,6 @@ use tpt_aero_rotor::solve_induction_bounded;
 #[allow(unused_imports)]
 use tpt_aero_rotor::solve_induction_bounded;
 
-/// Abstract monotone residual: g(λ) decreasing on [0,1], bounded inputs.
-/// Chosen arithmetic-only (no transcendentals) so Kani can reason about it.
-fn abstract_residual(lambda_i: f64, lambda_c: f64) -> f64 {
-    // g(λ) = a − b·λ with a,b ≥ 0 symbolic — linear, strictly decreasing.
-    let a = 1.0 + lambda_c;
-    let b = 1.0 + lambda_i * 0.0 + 2.0;
-    a - b * lambda_i
-}
-
 #[cfg(kani)]
 mod proofs {
     use super::solve_induction_bounded;
@@ -114,11 +105,4 @@ mod proofs {
             assert!(r1.abs() < 1e-6, "row 1 residual {r1}");
         }
     }
-}
-
-// Outside Kani runs the module only carries the abstract closures above.
-#[cfg(not(kani))]
-#[allow(dead_code)]
-fn _doc_note() {
-    let _ = abstract_residual;
 }
