@@ -255,6 +255,20 @@ mod tests {
     }
 
     #[test]
+    fn cached_and_generic_lu_share_singularity_threshold() {
+        // The prepared (cached) path and the generic path must reject the same
+        // matrices: pivot 1e-13 is below 1e-12 * max(|a|, 1), pivot 1e-11 is not.
+        for (pivot, expect_ok) in [(1.0e-13, false), (1.0e-11, true)] {
+            let a = vec![vec![pivot, 0.0], vec![0.0, 1.0]];
+            let b = [1.0, 1.0];
+            let cached = lu_solve(&a, &b);
+            let generic = lu_solve_generic::<f64>(&a, &b);
+            assert_eq!(cached.is_ok(), expect_ok, "cached, pivot {pivot}");
+            assert_eq!(generic.is_ok(), expect_ok, "generic, pivot {pivot}");
+        }
+    }
+
+    #[test]
     fn cholesky_solves_spd_system() {
         // A = L Lᵀ for a known L → guaranteed SPD.
         let l = [

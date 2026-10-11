@@ -155,6 +155,11 @@ fn naca4_impl(code: &str, n: usize, closed: bool) -> Result<AirfoilCoordinates, 
     if t <= 0.0 || t > 0.40 {
         return Err(AirfoilError::InvalidNacaCode(code.to_string()));
     }
+    // Camber position 0 is only meaningful for a symmetric section. Any
+    // nonzero camber with p = 0 would otherwise be dropped silently.
+    if m > 0.0 && p == 0.0 {
+        return Err(AirfoilError::InvalidNacaCode(code.to_string()));
+    }
 
     // Cosine-spaced stations from TE (x=1) around the LE to TE again.
     let beta: Vec<f64> = (0..=n)
@@ -281,6 +286,18 @@ mod tests {
             AirfoilError::InvalidResolution
         );
         assert!(naca4("0030", 20).is_ok());
+    }
+
+    #[test]
+    fn camber_with_zero_position_is_rejected_not_flattened() {
+        // m > 0 with p = 0 is not a NACA section; it must not silently
+        // produce a symmetric profile.
+        assert_eq!(
+            naca4("2012", 20).unwrap_err(),
+            AirfoilError::InvalidNacaCode("2012".into())
+        );
+        // Symmetric sections with p = 0 remain valid.
+        assert!(naca4("0012", 20).is_ok());
     }
 
     #[test]

@@ -41,8 +41,9 @@ pub use avl::{parse as parse_avl, AvlDeck, AvlError};
 pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError, SpanSpacing};
 pub use optimize::{optimize_linear_twist, TwistOptimum};
 pub use solver::{
-    FlightState, PreparedVlm, ReferenceGeometry, StateLoads, VlmError, VlmModel, VlmSolution,
-    VlmSolutionFields, WakeModel,
+    validity_flags, FlightState, InfluenceKernel, PreparedVlm, ReferenceGeometry, StateLoads,
+    ValidityFlags, VlmError, VlmModel, VlmSolution, VlmSolutionFields, WakeModel,
+    VALIDITY_ALPHA_LIMIT, VALIDITY_MACH_LIMIT, VALIDITY_REYNOLDS_MIN,
 };
 /// Native linear solves, re-exported from `tpt-aero-core` so existing paths keep working.
 pub use tpt_aero_core::linalg;

@@ -1,14 +1,14 @@
-kind                level
-speed_ms            50.000
-density             1.22500
-bank_deg            0.0000
-alpha_deg           3.9106
-beta_deg            0.0000
-elevator_deg        -3.1921
-thrust_n            622.552
-load_factor         1.00000
-cl                  0.32022
-cd                  0.03388
-lift_over_drag      9.451
-static_margin_mac   0.4199   (positive = stable; fraction of the reference chord)
-turn_rate_deg_s     0.0000
+kind                 level  -
+speed_ms            50.000  m/s
+density            1.22500  kg/m^3
+bank_deg            0.0000  deg
+alpha_deg           3.9106  deg
+beta_deg            0.0000  deg
+elevator_deg       -3.1921  deg
+thrust_n           622.552  N
+load_factor        1.00000  g
+cl                 0.32022  -
+cd                 0.03388  -
+lift_over_drag       9.451  -
+static_margin_mac   0.4199  fraction of MAC (+ = stable)
+turn_rate_deg_s     0.0000  deg/s

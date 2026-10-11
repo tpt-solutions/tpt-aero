@@ -47,7 +47,10 @@ tpt-aero/
 │   ├── tpt-aero-atmo/         # Atmospheric models: ISA standard, wind shear, turbulence (Dryden/von Kármán)
 │   ├── tpt-aero-stability/    # Flight mechanics: Stability/control derivatives, dynamic mode extraction
 │   ├── tpt-aero-verify/       # Verification harnesses: Kani proofs, proptest strategies, conservation checks
-│   └── tpt-aero/              # Feature-gated umbrella crate re-exporting all above
+│   ├── tpt-aero/              # Feature-gated umbrella crate re-exporting all above
+│   ├── tpt-aero-cli/          # Command-line front end: wing, rotor, trim, report, AVL import/export
+│   ├── tpt-aero-wasm/         # WebAssembly build and browser demo
+│   └── tpt-aero-py/           # Python bindings (PyO3 / maturin)
 ├── spec.txt                   # This document
 └── todo.md                    # Phased build tracking
 
@@ -165,6 +168,7 @@ tpt-physics (CFD): tpt-aero acts as the fast, low-fidelity surrogate in the desi
 tpt-systems-optimisation: The differentiable VLM and BEMT implementations allow tpt-systems-optimisation to perform gradient-based multidisciplinary design optimization (MDO) of aircraft or wind turbine blades.
 tpt-fem-modal: Enables aeroelastic coupling (flutter analysis) by combining tpt-aero unsteady aerodynamics with tpt-fem structural mode shapes.
 6. Phased Rollout (todo.md Alignment)
+Note: the phases below are the original plan and are kept for context. todo.md is authoritative for status and numbering: Phase 0 project setup and licensing, Phase 1 foundation and VLM, Phase 2 rotors and atmosphere, Phase 3 panel methods and stability, Phase 4 umbrella crate, docs and release, followed by the platform review (2026-10). The tpt-control coupling in section 5 is planned, not implemented.
 Phase 0: Foundation & VLM (Weeks 1-3)
 Scaffold workspace with strict dependency linting.
 Implement tpt-aero-core (unit-safe types, airfoil polars, geometry).

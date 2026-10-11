@@ -301,3 +301,96 @@ fn an_additive_roll_moment_accelerates_roll_as_m_over_ixx() {
         "p' = {roll_accel}, M/Ixx = {expected}"
     );
 }
+
+#[test]
+fn zero_gust_history_reproduces_the_steady_wind_run() {
+    use tpt_aero_stability::sixdof::{simulate_partial, simulate_partial_with_wind};
+    let m = aircraft();
+    let x0 = steady_state(4.0_f64.to_radians(), 0.0, 0.0);
+    let controls = Controls::default();
+    let no_extra = |_: f64, _: &State| ([0.0; 3], [0.0; 3]);
+    let (steady, e1) = simulate_partial(
+        &m,
+        &config(),
+        x0,
+        0.01,
+        200,
+        &|_| controls,
+        &|_, _| 0.0,
+        &no_extra,
+    );
+    let (still, e2) = simulate_partial_with_wind(
+        &m,
+        &config(),
+        x0,
+        0.01,
+        200,
+        &|_| controls,
+        &|_, _| 0.0,
+        &no_extra,
+        &|_| [0.0; 3],
+    );
+    assert!(e1.is_none() && e2.is_none());
+    assert_eq!(steady.last(), still.last());
+}
+
+#[test]
+fn an_updraft_gust_changes_the_response() {
+    use tpt_aero_stability::sixdof::{
+        one_minus_cosine_gust, simulate_partial, simulate_partial_with_wind,
+    };
+    let m = aircraft();
+    let x0 = steady_state(4.0_f64.to_radians(), 0.0, 0.0);
+    let controls = Controls::default();
+    let no_extra = |_: f64, _: &State| ([0.0; 3], [0.0; 3]);
+    let (calm, _) = simulate_partial(
+        &m,
+        &config(),
+        x0,
+        0.01,
+        300,
+        &|_| controls,
+        &|_, _| 0.0,
+        &no_extra,
+    );
+    let gust = one_minus_cosine_gust(3.0, 10.0, 0.5, V).expect("valid gust");
+    let (gusty, e) = simulate_partial_with_wind(
+        &m,
+        &config(),
+        x0,
+        0.01,
+        300,
+        &|_| controls,
+        &|_, _| 0.0,
+        &no_extra,
+        &|t| gust(t),
+    );
+    assert!(e.is_none(), "{e:?}");
+    // The gust is brief and the short period damps it, so compare the largest
+    // deviation over the whole run, not the final sample.
+    let peak_w_gap = calm
+        .iter()
+        .zip(&gusty)
+        .map(|(a, b)| (a.1.w - b.1.w).abs())
+        .fold(0.0_f64, f64::max);
+    assert!(
+        peak_w_gap > 0.01,
+        "gust had no effect: peak Δw = {peak_w_gap}"
+    );
+}
+
+#[test]
+fn one_minus_cosine_gust_peaks_at_u_ds_and_is_zero_outside_its_support() {
+    use tpt_aero_stability::sixdof::one_minus_cosine_gust;
+    let (u_ds, h, t0, v) = (3.0, 10.0, 0.5, 50.0);
+    let gust = one_minus_cosine_gust(u_ds, h, t0, v).unwrap();
+    // Penetration s = h, reached at t0 + h / v: NED down = −u_ds (updraft).
+    assert!((gust(t0 + h / v)[2] + u_ds).abs() < 1e-12);
+    // Zero before the gust starts and after penetration 2h.
+    assert_eq!(gust(t0 - 0.1)[2], 0.0);
+    assert!(gust(t0 + 2.0 * h / v + 0.01)[2].abs() < 1e-12);
+    // Invalid inputs are refused.
+    assert!(one_minus_cosine_gust(-1.0, h, t0, v).is_none());
+    assert!(one_minus_cosine_gust(u_ds, 0.0, t0, v).is_none());
+    assert!(one_minus_cosine_gust(u_ds, h, t0, 0.0).is_none());
+}

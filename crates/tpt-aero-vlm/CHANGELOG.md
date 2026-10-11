@@ -8,6 +8,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `VlmModel::influence_kernel` and `VlmModel::prepare_with_kernel` (type `InfluenceKernel`): the horseshoe geometry is built once and reused across twists. `prepare_with_twists` now uses this path.
+- Lattice strip indices and `strip_cl` run from the −y tip to the +y tip (the old docs said root-side first).
+- `validity_flags` and `ValidityFlags`: independent checks of |α| and |β| ≤ 15°, M < 0.7 and Re ≥ 1e5, with the limits exported as constants.
+
+### Changed
+- Segment vortex guards scale with segment length, so the cut-off no longer depends on the length unit.
+- `avl` deck counts round half up without `f64::round`, for `no_std`.
+- `optimize_linear_twist` uses a literal golden-ratio constant, for `no_std`.
+
 ### Breaking
 - `VlmError` has two new variants (`FreestreamWakeNotPrepared`, `InvalidGroundHeight`). Exhaustive matches need the new arms.
 - `StateLoads` has two new fields (`force_n`, `moment_nm`). Struct literals need them.

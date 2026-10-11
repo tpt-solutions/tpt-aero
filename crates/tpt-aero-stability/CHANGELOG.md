@@ -8,6 +8,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `alpha_beta_envelope` and `LINEAR_ENVELOPE_LIMIT` (20°): flag air-relative |α| or |β| outside the linear VLM envelope.
+- `simulate_partial_with_wind`: the six-DOF run takes the NED air velocity as a function of time, for gusts. `simulate_partial` delegates to it with the steady `cfg.wind_ned`.
+- `one_minus_cosine_gust`: a vertical one-minus-cosine updraft for that function, returning `None` for invalid inputs.
+
+### Changed
+- Six-DOF builds the VLM influence kernel once and reuses it on every control change.
+- Turn trim tests its force residuals relative to W/(qS) rather than absolutely.
+- `trim` Newton step uses a squared norm for its damping comparison (same decisions; `no_std`).
+
 ### Breaking
 - `LongitudinalPlant::short_period` returns `Option<(f64, f64)>`: `None` when the aircraft is statically unstable.
 

@@ -390,3 +390,60 @@ fn exhausted_iteration_budget_reports_not_converged() {
         .unwrap_err();
     assert_eq!(err, RotorError::NotConverged);
 }
+
+#[test]
+fn swirl_is_off_by_default_and_leaves_a_prime_zero() {
+    let sol = reference_solver()
+        .solve(&OperatingCondition::hover(OMEGA, RHO))
+        .expect("converged");
+    assert!(sol.sections.iter().all(|s| s.swirl == 0.0));
+}
+
+#[test]
+fn swirl_converges_with_small_positive_a_prime_and_tangential_balance() {
+    let solver = reference_solver().with_swirl(true);
+    assert!(solver.swirl());
+    let sol = solver
+        .solve(&OperatingCondition::hover(OMEGA, RHO))
+        .expect("converged with swirl");
+    for s in &sol.sections {
+        assert!((0.0..=0.5).contains(&s.swirl), "a' = {}", s.swirl);
+    }
+    // Swirl is small for a lightly loaded rotor and positive where loaded.
+    let mid = &sol.sections[sol.sections.len() / 2];
+    assert!(mid.swirl > 0.0 && mid.swirl < 0.1, "mid a' = {}", mid.swirl);
+    // Tangential momentum: 4 x³ λ_tot a' F must match the element dC_Q/dx at
+    // the fixed point, wherever the Prandtl factor is not near zero.
+    for s in sol
+        .sections
+        .iter()
+        .filter(|s| s.loss >= 0.05 && s.lambda_tot > 1e-6)
+    {
+        let momentum = 4.0 * s.r_frac.powi(3) * s.lambda_tot * s.swirl * s.loss;
+        let scale = s.dcq_dx.abs().max(1e-12);
+        assert!(
+            (momentum - s.dcq_dx).abs() / scale < 1e-4,
+            "x = {}: momentum {momentum} vs element {}",
+            s.r_frac,
+            s.dcq_dx
+        );
+    }
+}
+
+#[test]
+fn swirl_changes_thrust_only_modestly_for_a_lightly_loaded_rotor() {
+    let op = OperatingCondition::hover(OMEGA, RHO);
+    let axial = reference_solver().solve(&op).expect("converged").loads.ct;
+    let swirled = reference_solver()
+        .with_swirl(true)
+        .solve(&op)
+        .expect("converged")
+        .loads
+        .ct;
+    let change = (swirled / axial - 1.0).abs();
+    assert!(
+        change < 0.05,
+        "swirl changed C_T by {:.2} %",
+        change * 100.0
+    );
+}

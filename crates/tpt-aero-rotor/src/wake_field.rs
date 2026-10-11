@@ -32,8 +32,12 @@ use tpt_aero_core::Real as _;
 
 use crate::blade::RotorError;
 
-/// Number of Simpson panels in the `t` variable of the wake integral.
-const WAKE_PANELS: usize = 4000;
+/// Largest Simpson panel count (in `t`) the wake integral may use. Must be even.
+const WAKE_PANELS: usize = 4096;
+/// Panel count at which the adaptive wake integral starts.
+const WAKE_PANELS_START: usize = 64;
+/// Relative agreement between successive panel counts that ends the integral.
+const WAKE_RTOL: f64 = 1.0e-9;
 
 /// Complete elliptic integrals `(K(k), E(k))` for modulus `k` (`0 ≤ k < 1`),
 /// by the arithmetic-geometric mean. `kp = √(1 − k²)` is passed separately so
@@ -139,20 +143,44 @@ impl CylinderWake {
         // Axisymmetric: evaluate on the positive side and flip u_r for r < 0.
         let sign = if r < 0.0 { -1.0 } else { 1.0 };
         let r = r.abs();
-        let rad = self.radius;
         let gamma = 2.0 * self.v_d;
-        // z' = R tan t over t ∈ [0, π/2): dz' = R sec² t dt.
+        // Double the Simpson panel count until successive estimates agree.
+        // Smooth field points stop after a few hundred ring evaluations rather
+        // than 4001; points near the wake edge refine up to the cap.
+        let mut panels = WAKE_PANELS_START;
+        let (mut acc_z, mut acc_r) = self.simpson_sums(z, r, panels);
+        while panels < WAKE_PANELS {
+            let next = (panels * 2).min(WAKE_PANELS);
+            let (nz, nr) = self.simpson_sums(z, r, next);
+            let scale = nz.abs().max(nr.abs()).max(1.0e-12);
+            let converged = (nz - acc_z).abs().max((nr - acc_r).abs()) <= WAKE_RTOL * scale;
+            (acc_z, acc_r) = (nz, nr);
+            panels = next;
+            if converged {
+                break;
+            }
+        }
+        let h = core::f64::consts::FRAC_PI_2 / panels as f64;
+        let scale = gamma * h / 3.0;
+        (scale * acc_z, sign * scale * acc_r)
+    }
+
+    /// Unscaled Simpson sums of the ring kernel over `panels` panels in `t`,
+    /// with `z' = R tan t` and `dz' = R sec² t dt`. The induced velocity is
+    /// `2 v_d · h / 3` times these sums, where `h = (π/2)/panels`.
+    fn simpson_sums(&self, z: f64, r: f64, panels: usize) -> (f64, f64) {
+        let rad = self.radius;
         let half = core::f64::consts::FRAC_PI_2;
-        let h = half / WAKE_PANELS as f64;
+        let h = half / panels as f64;
         let mut acc_z = 0.0;
         let mut acc_r = 0.0;
-        for i in 0..=WAKE_PANELS {
+        for i in 0..=panels {
             let t = h * i as f64;
             // Stop just short of the endpoint, where tan t diverges.
             let t = t.min(half * (1.0 - 1.0e-12));
             let zp = rad * t.tan();
             let jac = rad / (t.cos() * t.cos());
-            let w = if i == 0 || i == WAKE_PANELS {
+            let w = if i == 0 || i == panels {
                 1.0
             } else if i % 2 == 1 {
                 4.0
@@ -163,8 +191,7 @@ impl CylinderWake {
             acc_z += w * uz * jac;
             acc_r += w * ur * jac;
         }
-        let scale = gamma * h / 3.0;
-        (scale * acc_z, sign * scale * acc_r)
+        (acc_z, acc_r)
     }
 
     /// Total flow at `(z, r)`: axial speed `V + u_z` and radial speed `u_r`
@@ -401,6 +428,23 @@ mod wall_tests {
             let (uz, ur) = w.induced(z, 1.0);
             assert!(uz.is_finite() && ur.is_finite(), "z = {z}: ({uz}, {ur})");
             assert!(w.dynamic_pressure_increment(z, 1.0).is_finite());
+        }
+    }
+
+    #[test]
+    fn adaptive_integral_matches_the_fixed_fine_grid() {
+        // The adaptive count must agree with the 4096-panel reference it caps at,
+        // off axis and close to the wake edge where refinement is needed.
+        let w = CylinderWake::new(1.0, 0.8, 0.0, 1.225).expect("valid");
+        let h = core::f64::consts::FRAC_PI_2 / WAKE_PANELS as f64;
+        let scale = 2.0 * 0.8 * h / 3.0;
+        for &(z, r) in &[(0.2, 0.3), (0.5, 0.9), (1.0, 0.99), (2.0, 1.4), (0.05, 0.7)] {
+            let (rz, rr) = w.simpson_sums(z, r, WAKE_PANELS);
+            let (uz, ur) = w.induced(z, r);
+            let (ref_z, ref_r) = (scale * rz, scale * rr);
+            let tol = 1e-7 * ref_z.abs().max(ref_r.abs()).max(1e-9);
+            assert!((uz - ref_z).abs() < tol, "({z}, {r}) u_z {uz} vs {ref_z}");
+            assert!((ur - ref_r).abs() < tol, "({z}, {r}) u_r {ur} vs {ref_r}");
         }
     }
 }

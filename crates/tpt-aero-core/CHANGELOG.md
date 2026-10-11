@@ -8,6 +8,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `naca4` rejects nonzero camber with camber position `p = 0` (`InvalidNacaCode`). Such codes were silently flattened to symmetric sections.
+- `PolarSet` blends Reynolds numbers in ln(Re) rather than linearly in Re, so tables are weighted by decades. Non-positive Re returns NaN.
+- `linalg` tests pin that the cached and generic LU paths share one singularity threshold.
+
 ### Breaking
 - `naca4` returns `AirfoilError::InvalidResolution` for fewer than 2 stations and accepts thickness up to 40 %.
 - Error types (`AirfoilError`, `PolarError`, `GeometryError`, `SolveError`) implement `core::error::Error`, so `?` converts them into `Box<dyn Error>`.

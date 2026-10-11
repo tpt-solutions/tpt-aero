@@ -176,7 +176,7 @@ pub struct VlmSolution {
     pub cn: f64,
     /// Horseshoe strengths Γ (m²/s), element-ordered.
     pub gamma: Vec<f64>,
-    /// Section lift coefficients per spanwise strip (root-side first).
+    /// Section lift coefficients per spanwise strip (from the −y tip to the +y tip).
     pub strip_cl: Vec<f64>,
     /// Total dimensional force (N) in body axes.
     pub force: Vec3<f64>,
@@ -271,6 +271,35 @@ pub struct StateLoads {
 /// factorization and O(N^2) kernel evaluations once and each angle costs only
 /// O(N^2) arithmetic. Results match [`VlmModel::solve`] with zero twist.
 /// Obtain one with [`VlmModel::prepare`].
+/// Twist-independent horseshoe geometry of one model, reusable across twists.
+///
+/// Built by [`VlmModel::influence_kernel`]; consumed by
+/// [`VlmModel::prepare_with_kernel`]. Holds `N²` velocity vectors for the AIC
+/// and `N²` for the load influence, so it costs memory proportional to `N²`.
+#[derive(Debug, Clone)]
+pub struct InfluenceKernel {
+    /// Number of elements `N`.
+    n: usize,
+    /// Row-major `N x N`: velocity at collocation point `i` per unit Γ_j (1/m).
+    aic: Vec<Vec3<f64>>,
+    /// Row-major `N x N`: velocity at element `j`'s bound midpoint per unit Γ_k.
+    load: Vec<Vec3<f64>>,
+}
+
+impl InfluenceKernel {
+    /// Number of elements the kernel was built for.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.n
+    }
+
+    /// True for an empty lattice (never produced by a constructed model).
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+}
+
 #[derive(Debug)]
 pub struct PreparedVlm<'a> {
     model: &'a VlmModel,
@@ -937,33 +966,41 @@ impl VlmModel {
     /// [`VlmError::DimensionMismatch`] for a wrong-length twist slice, or
     /// [`VlmError::SingularAic`].
     pub fn prepare_with_twists(&self, twists: &[f64]) -> Result<PreparedVlm<'_>, VlmError> {
+        let kernel = self.influence_kernel()?;
+        self.prepare_with_kernel(&kernel, twists)
+    }
+
+    /// The twist-independent geometric influence of every horseshoe, computed
+    /// once per model. Twist only changes the surface normals, so a caller that
+    /// re-prepares many times (a six-DOF run changing control deflections, say)
+    /// builds this once and passes it to [`VlmModel::prepare_with_kernel`].
+    ///
+    /// # Errors
+    /// [`VlmError::FreestreamWakeNotPrepared`] for the freestream wake, and
+    /// [`VlmError::InvalidGroundHeight`] / ground-clearance errors as in
+    /// [`VlmModel::prepare`].
+    pub fn influence_kernel(&self) -> Result<InfluenceKernel, VlmError> {
         if self.wake == WakeModel::Freestream {
             return Err(VlmError::FreestreamWakeNotPrepared);
         }
         self.check_ground()?;
         let elements = self.lattice.elements();
         let n = elements.len();
-        if !twists.is_empty() && twists.len() != n {
-            return Err(VlmError::DimensionMismatch);
-        }
         let d = Vec3::new(1.0, 0.0, 0.0);
-        let normals: Vec<Vec3<f64>> = elements
-            .iter()
-            .enumerate()
-            .map(|(i, e)| e.normal_for_twist(e.twist + twists.get(i).copied().unwrap_or(0.0)))
-            .collect();
-        let mut a = vec![vec![0.0; n]; n];
-        for (i, ei) in elements.iter().enumerate() {
+        // Velocity at collocation point i from element j, per unit Γ (row-major).
+        let mut aic = Vec::with_capacity(n * n);
+        for ei in elements {
             let cp = ei.cp::<f64>();
-            for (j, ej) in elements.iter().enumerate() {
+            for ej in elements {
                 let (ba, bb) = ej.bounds::<f64>();
-                let vel = horseshoe_velocity(&ba, &bb, &d, &cp, 1.0)
-                    + self.image_horseshoe(&ba, &bb, &d, &cp, 1.0);
-                a[i][j] = normals[i].dot(&vel);
+                aic.push(
+                    horseshoe_velocity(&ba, &bb, &d, &cp, 1.0)
+                        + self.image_horseshoe(&ba, &bb, &d, &cp, 1.0),
+                );
             }
         }
-        let lu = LuFactors::factor(&a)?;
-        let mut influence = Vec::with_capacity(n * n);
+        // Velocity at element j's bound midpoint from element k (row-major).
+        let mut load = Vec::with_capacity(n * n);
         for (j, ej) in elements.iter().enumerate() {
             let (ba, bb) = ej.bounds::<f64>();
             let mid = (ba + bb).scaled(0.5);
@@ -977,14 +1014,46 @@ impl VlmModel {
                 } else {
                     horseshoe_velocity(&ka, &kb, &d, &mid, 1.0)
                 };
-                influence.push(direct + self.image_horseshoe(&ka, &kb, &d, &mid, 1.0));
+                load.push(direct + self.image_horseshoe(&ka, &kb, &d, &mid, 1.0));
             }
         }
+        Ok(InfluenceKernel { n, aic, load })
+    }
+
+    /// Prepare the model for `twists` from a kernel built by
+    /// [`VlmModel::influence_kernel`] on this same model. Only the normals and
+    /// one LU factorisation depend on the twist; the horseshoe geometry is reused.
+    ///
+    /// # Errors
+    /// [`VlmError::DimensionMismatch`] for a wrong-length twist slice or a
+    /// kernel from a different lattice, or [`VlmError::SingularAic`].
+    pub fn prepare_with_kernel(
+        &self,
+        kernel: &InfluenceKernel,
+        twists: &[f64],
+    ) -> Result<PreparedVlm<'_>, VlmError> {
+        let elements = self.lattice.elements();
+        let n = elements.len();
+        if kernel.n != n || (!twists.is_empty() && twists.len() != n) {
+            return Err(VlmError::DimensionMismatch);
+        }
+        let normals: Vec<Vec3<f64>> = elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| e.normal_for_twist(e.twist + twists.get(i).copied().unwrap_or(0.0)))
+            .collect();
+        let mut a = vec![vec![0.0; n]; n];
+        for (i, row) in a.iter_mut().enumerate() {
+            for (j, aij) in row.iter_mut().enumerate() {
+                *aij = normals[i].dot(&kernel.aic[i * n + j]);
+            }
+        }
+        let lu = LuFactors::factor(&a)?;
         Ok(PreparedVlm {
             model: self,
             lu,
             normals,
-            influence,
+            influence: kernel.load.clone(),
         })
     }
 
@@ -1186,5 +1255,49 @@ impl VlmModel {
             .zip(ref_len_per_strip.iter())
             .map(|(f, r)| if r.abs() < 1.0e-12 { 0.0 } else { f / r })
             .collect()
+    }
+}
+
+/// Whether a flight condition lies inside the regime the linear VLM is
+/// validated for. Each flag is independent, so a result can fail one limit and
+/// pass the others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidityFlags {
+    /// `|α| ≤ 15°`: attached flow, where the linear lift slope holds.
+    pub alpha_ok: bool,
+    /// `|β| ≤ 15°`: small sideslip, where the linearised side loads hold.
+    pub beta_ok: bool,
+    /// `M < 0.7`: the Göthert compressibility correction is used below this.
+    pub mach_ok: bool,
+    /// `Re ≥ 1e5`: below this, viscous and laminar effects dominate the
+    /// inviscid lattice.
+    pub reynolds_ok: bool,
+}
+
+impl ValidityFlags {
+    /// True when every flag is inside its limit.
+    #[must_use]
+    pub const fn all_ok(&self) -> bool {
+        self.alpha_ok && self.beta_ok && self.mach_ok && self.reynolds_ok
+    }
+}
+
+/// Validity limits for [`validity_flags`], in radians, Mach and Reynolds number.
+pub const VALIDITY_ALPHA_LIMIT: f64 = 15.0 * core::f64::consts::PI / 180.0;
+/// See [`ValidityFlags::mach_ok`].
+pub const VALIDITY_MACH_LIMIT: f64 = 0.7;
+/// See [`ValidityFlags::reynolds_ok`].
+pub const VALIDITY_REYNOLDS_MIN: f64 = 1.0e5;
+
+/// Check a flight condition against the linear VLM's validity limits.
+///
+/// Non-finite inputs fail every flag they touch, so a NaN never reads as valid.
+#[must_use]
+pub fn validity_flags(alpha_rad: f64, beta_rad: f64, mach: f64, reynolds: f64) -> ValidityFlags {
+    ValidityFlags {
+        alpha_ok: alpha_rad.abs() <= VALIDITY_ALPHA_LIMIT,
+        beta_ok: beta_rad.abs() <= VALIDITY_ALPHA_LIMIT,
+        mach_ok: mach.is_finite() && mach < VALIDITY_MACH_LIMIT,
+        reynolds_ok: reynolds >= VALIDITY_REYNOLDS_MIN,
     }
 }

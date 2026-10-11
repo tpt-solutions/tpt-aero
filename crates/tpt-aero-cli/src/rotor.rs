@@ -67,6 +67,12 @@ struct RotorSpec {
     root_twist_deg: f64,
     #[serde(default)]
     tip_twist_deg: f64,
+    /// Optional chord per station (m), one per `stations`, hub side to tip.
+    /// Overrides the linear taper from `chord` and `chord_tip_ratio`.
+    chord_profile: Option<Vec<f64>>,
+    /// Optional built-in twist per station (deg), one per `stations`, hub side
+    /// to tip. Overrides the linear twist from the root and tip twists.
+    twist_profile_deg: Option<Vec<f64>>,
     #[serde(default = "default_true")]
     tip_loss: bool,
     #[serde(default)]
@@ -148,6 +154,17 @@ pub struct RotorReport {
 
 /// Build the solver and the operating conditions from a parsed case. Returns
 /// the solver, the air density, the radius and the collective (rad).
+/// Reject a per-station array whose length is not the station count.
+fn check_profile_len(name: &str, profile: &[f64], stations: usize) -> Result<(), CliError> {
+    if profile.len() != stations {
+        return Err(CliError::Invalid(format!(
+            "{name} needs one value per station ({stations}), got {}",
+            profile.len()
+        )));
+    }
+    Ok(())
+}
+
 fn build(case: &RotorCase) -> Result<(BemtSolver, f64, f64, f64), CliError> {
     let r = &case.rotor;
     let radius = positive("rotor.radius", r.radius)?;
@@ -198,6 +215,19 @@ fn build(case: &RotorCase) -> Result<(BemtSolver, f64, f64, f64), CliError> {
         let t = i as f64 / (n - 1).max(1) as f64;
         sec.chord = chord * (1.0 + (taper - 1.0) * t);
     }
+    // Per-station arrays override the linear taper and twist, one value per station.
+    if let Some(profile) = &r.chord_profile {
+        check_profile_len("rotor.chord_profile", profile, n)?;
+        for (sec, &c) in geometry.sections.iter_mut().zip(profile) {
+            sec.chord = positive("rotor.chord_profile", c)?;
+        }
+    }
+    if let Some(profile) = &r.twist_profile_deg {
+        check_profile_len("rotor.twist_profile_deg", profile, n)?;
+        for (sec, &t) in geometry.sections.iter_mut().zip(profile) {
+            sec.twist = finite("rotor.twist_profile_deg", t)?.to_radians();
+        }
+    }
 
     let s = &case.section;
     let section = match (&s.alpha_deg, &s.cl, &s.cd) {
@@ -237,17 +267,17 @@ fn build(case: &RotorCase) -> Result<(BemtSolver, f64, f64, f64), CliError> {
     Ok((solver, density, radius, collective))
 }
 
-/// One operating point at shaft speed `rpm`.
+/// One operating point at shaft speed `rpm` and axial speed `speed` (m/s).
 fn report_at(
     solver: &BemtSolver,
-    case: &RotorCase,
+    speed: f64,
     density: f64,
     radius: f64,
     collective: f64,
     rpm: f64,
 ) -> Result<RotorReport, CliError> {
     let rpm = positive("operating.rpm", rpm)?;
-    let speed = finite("operating.speed", case.operating.speed)?;
+    let speed = finite("operating.speed", speed)?;
     let omega = rpm * core::f64::consts::TAU / 60.0;
     let sol = solver
         .solve(&OperatingCondition {
@@ -287,7 +317,7 @@ pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
     let (solver, density, radius, collective) = build(&case)?;
     report_at(
         &solver,
-        &case,
+        case.operating.speed,
         density,
         radius,
         collective,
@@ -295,39 +325,96 @@ pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
     )
 }
 
+/// The operating variable a sweep steps through; the others stay at the case
+/// values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SweepVariable {
+    /// Shaft speed in rpm.
+    Rpm,
+    /// Collective pitch added to the built-in twist, in degrees.
+    CollectiveDeg,
+    /// Axial (climb or inflow) speed in m/s. Also reports the advance ratio.
+    AxialSpeed,
+}
+
 /// Sweep the shaft speed over `start..=stop` rpm in steps of `step`, and return
 /// CSV: `rpm,thrust_n,torque_nm,power_w,ct,cq,cp`.
 ///
 /// # Errors
-/// As [`run_rotor`], and [`CliError::Invalid`] for a non-positive step, a
-/// reversed range, or more than 1000 points.
+/// As [`run_rotor_sweep_over`].
 pub fn run_rotor_sweep(
     case_toml: &str,
     start: f64,
     stop: f64,
     step: f64,
 ) -> Result<String, CliError> {
-    let start = positive("sweep start", start)?;
-    let stop = positive("sweep stop", stop)?;
+    run_rotor_sweep_over(case_toml, SweepVariable::Rpm, start, stop, step)
+}
+
+/// Sweep `variable` over `start..=stop` in steps of `step` and return CSV.
+///
+/// The columns are the swept variable, then `thrust_n,torque_nm,power_w,ct,cq,cp`.
+/// [`SweepVariable::AxialSpeed`] adds an `advance_ratio` column, `J = π λ_c`,
+/// the propeller advance ratio with `D = 2R`.
+///
+/// # Errors
+/// [`CliError::Invalid`] for a non-finite bound, a non-positive step, a reversed
+/// range, more than 1000 points, or a non-positive `start` or `stop` in rpm;
+/// otherwise as [`run_rotor`].
+pub fn run_rotor_sweep_over(
+    case_toml: &str,
+    variable: SweepVariable,
+    start: f64,
+    stop: f64,
+    step: f64,
+) -> Result<String, CliError> {
+    let start = finite("sweep start", start)?;
+    let stop = finite("sweep stop", stop)?;
     let step = positive("sweep step", step)?;
     if stop < start {
         return Err(CliError::Invalid("sweep stop must be ≥ start".into()));
     }
+    if variable == SweepVariable::Rpm {
+        positive("sweep start", start)?;
+        positive("sweep stop", stop)?;
+    }
     let n = ((stop - start) / step + 1.0e-9).floor() as usize + 1;
     if n > 1000 {
-        return Err(CliError::Invalid(
-            "rpm sweep has more than 1000 points".into(),
-        ));
+        return Err(CliError::Invalid("sweep has more than 1000 points".into()));
     }
     let case = parse(case_toml)?;
-    let (solver, density, radius, collective) = build(&case)?;
-    let mut out = String::from("rpm,thrust_n,torque_nm,power_w,ct,cq,cp\n");
+    let (solver, density, radius, collective0) = build(&case)?;
+    let mut out = match variable {
+        SweepVariable::Rpm => String::from("rpm,thrust_n,torque_nm,power_w,ct,cq,cp\n"),
+        SweepVariable::CollectiveDeg => {
+            String::from("collective_deg,thrust_n,torque_nm,power_w,ct,cq,cp\n")
+        }
+        SweepVariable::AxialSpeed => {
+            String::from("axial_speed_ms,advance_ratio,thrust_n,torque_nm,power_w,ct,cq,cp\n")
+        }
+    };
     for i in 0..n {
-        let rpm = start + step * i as f64;
-        let rpm = (rpm * 1.0e9).round() / 1.0e9;
-        let r = report_at(&solver, &case, density, radius, collective, rpm)?;
+        let x = start + step * i as f64;
+        let x = (x * 1.0e9).round() / 1.0e9;
+        let (rpm, collective, speed) = match variable {
+            SweepVariable::Rpm => (x, collective0, case.operating.speed),
+            SweepVariable::CollectiveDeg => {
+                (case.operating.rpm, x.to_radians(), case.operating.speed)
+            }
+            SweepVariable::AxialSpeed => (case.operating.rpm, collective0, x),
+        };
+        let r = report_at(&solver, speed, density, radius, collective, rpm)?;
+        let label = match variable {
+            SweepVariable::AxialSpeed => {
+                // J = π λ_c with λ_c = V / (ΩR).
+                let tip = rpm * core::f64::consts::TAU / 60.0 * radius;
+                let j = core::f64::consts::PI * speed / tip;
+                format!("{x},{j:.6}")
+            }
+            _ => format!("{x}"),
+        };
         out.push_str(&format!(
-            "{rpm},{:.6},{:.6},{:.4},{:.8},{:.8},{:.8}\n",
+            "{label},{:.6},{:.6},{:.4},{:.8},{:.8},{:.8}\n",
             r.thrust_n, r.torque_nm, r.power_w, r.ct, r.cq, r.cp
         ));
     }

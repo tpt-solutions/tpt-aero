@@ -156,7 +156,11 @@ pub fn trim_level_flight(model: &VlmModel, req: &TrimRequest<'_>) -> Result<Trim
         let d_elev = (-j[1][0] * f_cl + j[0][0] * f_cm) / det;
         // Damped step: halve until the residual norm decreases, so a Newton
         // step that overshoots does not throw the iterate away.
-        let norm = |r: (f64, f64)| (r.0 / cl_required.abs().max(1.0)).hypot(r.1);
+        // Squared norm: only compared, never reported, and `hypot` is not in `no_std`.
+        let norm = |r: (f64, f64)| {
+            let a = r.0 / cl_required.abs().max(1.0);
+            a * a + r.1 * r.1
+        };
         let current = norm((f_cl, f_cm));
         let mut lambda = 1.0_f64;
         let mut accepted = (alpha - lambda * d_alpha, elevator - lambda * d_elev);

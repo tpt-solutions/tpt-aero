@@ -6,9 +6,10 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand, ValueEnum};
 use tpt_aero_cli::{
     aircraft_report, avl_import_summary, isa_table, rotor_text, run_derivatives,
-    run_derivatives_json, run_rotor, run_rotor_sweep, run_trim, run_vtk, run_wing, trim_text,
-    wing_mesh_check, wing_polar_svg, wing_to_avl, wing_warnings, TrimKind, AIRCRAFT_TEMPLATE,
-    GLIDER_TEMPLATE, QUADROTOR_TEMPLATE, ROTOR_TEMPLATE, TEMPLATE, UAV_TEMPLATE,
+    run_derivatives_json, run_rotor, run_rotor_sweep_over, run_trim, run_trim_speed_sweep, run_vtk,
+    run_wing, run_wing_spanwise, trim_csv, trim_text, wing_mesh_check, wing_polar_svg, wing_to_avl,
+    wing_warnings, SweepVariable, TrimKind, AIRCRAFT_TEMPLATE, GLIDER_TEMPLATE, QUADROTOR_TEMPLATE,
+    ROTOR_TEMPLATE, TEMPLATE, UAV_TEMPLATE,
 };
 
 /// Aerodynamics from the command line: VLM wings, BEMT rotors, trim and
@@ -33,8 +34,16 @@ enum Command {
         #[arg(long, value_name = "FILE")]
         svg: Option<PathBuf>,
         /// Print a mesh-convergence estimate instead of the sweep.
-        #[arg(long, conflicts_with_all = ["svg"])]
+        #[arg(long, conflicts_with_all = ["svg", "spanwise"])]
         check_mesh: bool,
+        /// Print the spanwise lift distribution at this angle (deg) instead of the sweep.
+        #[arg(
+            long,
+            value_name = "DEG",
+            allow_negative_numbers = true,
+            conflicts_with_all = ["svg", "check_mesh"]
+        )]
+        spanwise: Option<f64>,
     },
     /// Stability derivatives at one angle of attack.
     Derivatives {
@@ -69,8 +78,14 @@ enum Command {
         #[arg(long)]
         json: bool,
         /// Sweep the shaft speed instead: START:STOP:STEP in rpm, printed as CSV.
-        #[arg(long, value_name = "START:STOP:STEP", conflicts_with = "json")]
+        #[arg(long, value_name = "START:STOP:STEP", conflicts_with_all = ["json", "collective_sweep", "speed_sweep"])]
         rpm_sweep: Option<String>,
+        /// Sweep the collective pitch: START:STOP:STEP in degrees, printed as CSV.
+        #[arg(long, value_name = "START:STOP:STEP", conflicts_with_all = ["json", "speed_sweep"])]
+        collective_sweep: Option<String>,
+        /// Sweep the axial speed (advance ratio J): START:STOP:STEP in m/s, CSV.
+        #[arg(long, value_name = "START:STOP:STEP", conflicts_with = "json")]
+        speed_sweep: Option<String>,
         /// Write the report to this file instead of stdout.
         #[arg(short, long, value_name = "FILE")]
         out: Option<PathBuf>,
@@ -79,9 +94,17 @@ enum Command {
     Trim {
         /// Aircraft case file (TOML).
         aircraft: PathBuf,
-        /// True airspeed in m/s.
-        #[arg(long, value_name = "M_S")]
-        speed: f64,
+        /// True airspeed in m/s (required unless `--speed-sweep` is given).
+        #[arg(
+            long,
+            value_name = "M_S",
+            required_unless_present = "speed_sweep",
+            conflicts_with = "speed_sweep"
+        )]
+        speed: Option<f64>,
+        /// Level trim over airspeed: START:STOP:STEP in m/s, printed as CSV.
+        #[arg(long, value_name = "START:STOP:STEP", conflicts_with_all = ["bank", "json", "csv"])]
+        speed_sweep: Option<String>,
         /// Geopotential altitude in metres (ISA).
         #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
         altitude: f64,
@@ -89,8 +112,11 @@ enum Command {
         #[arg(long, value_name = "DEG", allow_negative_numbers = true)]
         bank: Option<f64>,
         /// Print the report as JSON.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "csv")]
         json: bool,
+        /// Print the report as CSV (quantity, value, unit).
+        #[arg(long)]
+        csv: bool,
         /// Write the report to this file instead of stdout.
         #[arg(short, long, value_name = "FILE")]
         out: Option<PathBuf>,
@@ -231,6 +257,7 @@ fn run(command: Command) -> Result<(), String> {
             out,
             svg,
             check_mesh,
+            spanwise,
         } => {
             let text = read_case(&case)?;
             for warning in wing_warnings(&text).map_err(|e| e.to_string())? {
@@ -239,6 +266,10 @@ fn run(command: Command) -> Result<(), String> {
             if check_mesh {
                 let report = wing_mesh_check(&text).map_err(|e| e.to_string())?;
                 return emit(&report, out.as_deref());
+            }
+            if let Some(alpha) = spanwise {
+                let csv = run_wing_spanwise(&text, alpha).map_err(|e| e.to_string())?;
+                return emit(&csv, out.as_deref());
             }
             if let Some(path) = svg {
                 let svg = wing_polar_svg(&text).map_err(|e| e.to_string())?;
@@ -271,18 +302,26 @@ fn run(command: Command) -> Result<(), String> {
             case,
             json,
             rpm_sweep,
+            collective_sweep,
+            speed_sweep,
             out,
         } => {
-            if let Some(spec) = rpm_sweep {
+            let sweep = match (rpm_sweep, collective_sweep, speed_sweep) {
+                (Some(s), _, _) => Some((SweepVariable::Rpm, "--rpm-sweep", s)),
+                (_, Some(s), _) => Some((SweepVariable::CollectiveDeg, "--collective-sweep", s)),
+                (_, _, Some(s)) => Some((SweepVariable::AxialSpeed, "--speed-sweep", s)),
+                _ => None,
+            };
+            if let Some((variable, flag, spec)) = sweep {
                 let parts: Vec<f64> = spec
                     .split(':')
                     .map(|p| p.trim().parse::<f64>())
                     .collect::<Result<_, _>>()
-                    .map_err(|_| "--rpm-sweep needs START:STOP:STEP numbers".to_string())?;
+                    .map_err(|_| format!("{flag} needs START:STOP:STEP numbers"))?;
                 let [start, stop, step] = parts[..] else {
-                    return Err("--rpm-sweep needs exactly START:STOP:STEP".into());
+                    return Err(format!("{flag} needs exactly START:STOP:STEP"));
                 };
-                let csv = run_rotor_sweep(&read_case(&case)?, start, stop, step)
+                let csv = run_rotor_sweep_over(&read_case(&case)?, variable, start, stop, step)
                     .map_err(|e| e.to_string())?;
                 return emit(&csv, out.as_deref());
             }
@@ -297,11 +336,28 @@ fn run(command: Command) -> Result<(), String> {
         Command::Trim {
             aircraft,
             speed,
+            speed_sweep,
             altitude,
             bank,
             json,
+            csv,
             out,
         } => {
+            if let Some(spec) = speed_sweep {
+                let parts: Vec<f64> = spec
+                    .split(':')
+                    .map(|p| p.trim().parse::<f64>())
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| "--speed-sweep needs START:STOP:STEP numbers".to_string())?;
+                let [start, stop, step] = parts[..] else {
+                    return Err("--speed-sweep needs exactly START:STOP:STEP".into());
+                };
+                let csv = run_trim_speed_sweep(&read_case(&aircraft)?, altitude, start, stop, step)
+                    .map_err(|e| e.to_string())?;
+                return emit(&csv, out.as_deref());
+            }
+            // Clap requires --speed unless a sweep is given.
+            let speed = speed.ok_or("--speed is required")?;
             let kind = match bank {
                 Some(deg) => TrimKind::Turn {
                     bank_rad: deg.to_radians(),
@@ -312,6 +368,8 @@ fn run(command: Command) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             let text = if json {
                 to_json(&report)?
+            } else if csv {
+                trim_csv(&report)
             } else {
                 trim_text(&report)
             };

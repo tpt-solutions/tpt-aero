@@ -98,3 +98,31 @@ pub fn freestream_speed() -> impl Strategy<Value = f64> {
 pub fn lattice_resolution() -> impl Strategy<Value = (usize, usize)> {
     (4_usize..24, 1_usize..5)
 }
+
+/// Flight condition for an aircraft trim or polar check: `(speed m/s, geopotential
+/// altitude m)`. Speed 10 .. 80 m/s, altitude 0 .. 11 000 m (the troposphere).
+pub fn flight_condition() -> impl Strategy<Value = (f64, f64)> {
+    (10.0_f64..80.0, 0.0_f64..11_000.0)
+}
+
+/// Control-surface deflection in radians, ±20°. The trim solvers refuse larger
+/// deflections than the linear VLM range supports.
+pub fn control_deflection() -> impl Strategy<Value = f64> {
+    (-20.0_f64..20.0).prop_map(|deg| deg.to_radians())
+}
+
+/// A valid section polar: a linear lift slope in `[4, 7]` per radian, a
+/// parabolic drag, and a constant pitching moment, tabulated on −10°..15°.
+///
+/// Returns the slope and the built table so tests can compare the two.
+pub fn section_polar() -> impl Strategy<Value = (f64, tpt_aero_core::AirfoilPolar)> {
+    (4.0_f64..7.0, 0.005_f64..0.03).prop_map(|(slope, cd0)| {
+        let alphas: Vec<f64> = (-10..=15).map(|d| f64::from(d).to_radians()).collect();
+        let cl: Vec<f64> = alphas.iter().map(|&a| slope * a).collect();
+        let cd: Vec<f64> = alphas.iter().map(|&a| cd0 + 0.05 * a * a).collect();
+        let cm = vec![-0.05; alphas.len()];
+        let polar = tpt_aero_core::AirfoilPolar::new(alphas, cl, cd, cm, 0.0, 1.0e6)
+            .expect("generated polar is valid by construction");
+        (slope, polar)
+    })
+}

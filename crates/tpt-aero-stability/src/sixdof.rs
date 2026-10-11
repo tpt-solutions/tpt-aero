@@ -23,7 +23,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use tpt_aero_vlm::{FlightState, PreparedVlm, VlmError, VlmModel};
+use tpt_aero_vlm::{FlightState, InfluenceKernel, PreparedVlm, VlmError, VlmModel};
 
 use crate::turn::G;
 
@@ -229,11 +229,12 @@ struct Aero<'m> {
     ir: usize,
     key: Option<Controls>,
     prepared: Option<PreparedVlm<'m>>,
+    /// Horseshoe geometry, built once. A control change then costs the normals
+    /// and one LU, not a fresh N² kernel evaluation.
+    kernel: InfluenceKernel,
     q_s: f64,
     /// Inverse of the inertia tensor, computed once from the body properties.
     inv_inertia: [[f64; 3]; 3],
-    /// Steady wind (NED, m/s).
-    wind_ned: [f64; 3],
     /// Thrust along body x rather than the relative wind.
     thrust_body_fixed: bool,
 }
@@ -290,9 +291,9 @@ impl<'m> Aero<'m> {
                 .ok_or(SixDofError::NoSuchControl)?,
             key: None,
             prepared: None,
+            kernel: model.influence_kernel()?,
             q_s: 0.0,
             inv_inertia: inverse_inertia(&b),
-            wind_ned: cfg.wind_ned,
             thrust_body_fixed: cfg.thrust_body_fixed,
         })
     }
@@ -305,24 +306,26 @@ impl<'m> Aero<'m> {
             deflections[self.ia] = controls.aileron;
             deflections[self.ir] = controls.rudder;
             let twists = self.model.control_twists(&deflections)?;
-            self.prepared = Some(self.model.prepare_with_twists(&twists)?);
+            self.prepared = Some(self.model.prepare_with_kernel(&self.kernel, &twists)?);
             self.key = Some(controls);
         }
         Ok(self.prepared.as_ref().expect("set above"))
     }
 
-    /// Time derivative of the 12-state vector.
+    /// Time derivative of the 12-state vector, with the air moving at `wind_ned`
+    /// (NED, m/s) at this instant.
     fn derivative(
         &mut self,
         x: &[f64; 12],
         controls: Controls,
         thrust: f64,
         extra: ExtraLoads,
+        wind_ned: [f64; 3],
     ) -> Result<[f64; 12], SixDofError> {
         let s = State::from_array(*x);
         // Air-relative body velocity: the aircraft velocity minus the wind,
         // which is given in NED and rotated into body axes (ZYX Euler).
-        let wind_b = ned_to_body(&self.wind_ned, s.phi, s.theta, s.psi);
+        let wind_b = ned_to_body(&wind_ned, s.phi, s.theta, s.psi);
         let (u_r, v_r, w_r) = (s.u - wind_b[0], s.v - wind_b[1], s.w - wind_b[2]);
         let v_air = (u_r * u_r + v_r * v_r + w_r * w_r).sqrt();
         if !(v_air.is_finite() && v_air > 0.0 && x.iter().all(|a| a.is_finite())) {
@@ -442,6 +445,67 @@ impl<'m> Aero<'m> {
     }
 }
 
+/// Largest |α| and |β| (rad) for which the linear-in-state VLM loads are
+/// trusted: the same 20° limit the trim solvers refuse beyond.
+pub const LINEAR_ENVELOPE_LIMIT: f64 = 20.0 * core::f64::consts::PI / 180.0;
+
+/// Air-relative angle of attack and sideslip at `state` in steady `wind_ned`
+/// (rad), and whether both lie inside [`LINEAR_ENVELOPE_LIMIT`].
+///
+/// A six-DOF history sample outside the envelope is still integrated, but its
+/// aerodynamic loads are extrapolated beyond the validated range. Check each
+/// sample, or the whole run, before quoting the results.
+#[must_use]
+pub fn alpha_beta_envelope(state: &State, wind_ned: [f64; 3]) -> (f64, f64, bool) {
+    let wind_b = ned_to_body(&wind_ned, state.phi, state.theta, state.psi);
+    let (u_r, v_r, w_r) = (
+        state.u - wind_b[0],
+        state.v - wind_b[1],
+        state.w - wind_b[2],
+    );
+    let v_air = (u_r * u_r + v_r * v_r + w_r * w_r).sqrt();
+    let alpha = w_r.atan2(u_r);
+    let beta = if v_air > 0.0 {
+        (v_r / v_air).clamp(-1.0, 1.0).asin()
+    } else {
+        0.0
+    };
+    let inside = alpha.abs() <= LINEAR_ENVELOPE_LIMIT && beta.abs() <= LINEAR_ENVELOPE_LIMIT;
+    (alpha, beta, inside)
+}
+
+/// A vertical one-minus-cosine gust for [`simulate_partial_with_wind`].
+///
+/// With penetration `s = v_air (t − t_start)`, the gust is zero before `s = 0`
+/// and after `s = 2h`, and in between is an updraft of `u_ds/2 · (1 − cos(π s/h))`.
+/// It peaks at `u_ds` when `s = h`. The NED down component is the negative of
+/// that updraft.
+///
+/// Returns `None` unless `u_ds ≥ 0`, `h > 0`, `v_air > 0` and all inputs are finite.
+#[must_use]
+pub fn one_minus_cosine_gust(
+    u_ds: f64,
+    h: f64,
+    t_start: f64,
+    v_air: f64,
+) -> Option<impl Fn(f64) -> [f64; 3]> {
+    if !(u_ds.is_finite() && u_ds >= 0.0 && h.is_finite() && h > 0.0) {
+        return None;
+    }
+    if !(t_start.is_finite() && v_air.is_finite() && v_air > 0.0) {
+        return None;
+    }
+    Some(move |t: f64| {
+        let s = v_air * (t - t_start);
+        let down = if (0.0..=2.0 * h).contains(&s) {
+            -0.5 * u_ds * (1.0 - (core::f64::consts::PI * s / h).cos())
+        } else {
+            0.0
+        };
+        [0.0, 0.0, down]
+    })
+}
+
 /// Simulate `steps` RK4 steps of size `dt` from `x0` at `t = 0`, returning
 /// `steps + 1` samples `(t, state)` including the initial state.
 ///
@@ -509,6 +573,30 @@ pub fn simulate_partial(
     thrust: &dyn Fn(f64, &State) -> f64,
     extra: &dyn Fn(f64, &State) -> ExtraLoads,
 ) -> (Vec<(f64, State)>, Option<SixDofError>) {
+    simulate_partial_with_wind(model, cfg, x0, dt, steps, controls, thrust, extra, &|_| {
+        cfg.wind_ned
+    })
+}
+
+/// As [`simulate_partial`], with the NED air velocity given as a function of
+/// time instead of the steady `cfg.wind_ned`. Use it for gusts: pass
+/// [`one_minus_cosine_gust`] or any other wind history. `cfg.wind_ned` is
+/// ignored.
+///
+/// # Panics
+/// Never. Invalid inputs are reported in the second element.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_partial_with_wind(
+    model: &VlmModel,
+    cfg: &SixDofConfig<'_>,
+    x0: State,
+    dt: f64,
+    steps: usize,
+    controls: &dyn Fn(f64) -> Controls,
+    thrust: &dyn Fn(f64, &State) -> f64,
+    extra: &dyn Fn(f64, &State) -> ExtraLoads,
+    wind: &dyn Fn(f64) -> [f64; 3],
+) -> (Vec<(f64, State)>, Option<SixDofError>) {
     // Do not trust `steps` for the allocation; the vector grows as needed.
     let mut history = Vec::with_capacity((steps + 1).min(1 << 16));
     history.push((0.0, x0));
@@ -526,7 +614,8 @@ pub fn simulate_partial(
             let c = controls(ts);
             let th = thrust(ts, &State::from_array(*xs));
             let ex = extra(ts, &State::from_array(*xs));
-            aero.derivative(xs, c, th, ex)
+            let w = wind(ts);
+            aero.derivative(xs, c, th, ex, w)
         };
         let stepped = (|| -> Result<[f64; 12], SixDofError> {
             let k1 = stage(&x, t)?;
@@ -569,5 +658,57 @@ mod wind_tests {
         // Down (+z in NED) is +z in body at level attitude.
         let down = ned_to_body(&[0.0, 0.0, 3.0], 0.0, 0.0, 0.0);
         assert!((down[2] - 3.0).abs() < 1e-12);
+    }
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+
+    fn state_with(u: f64, v: f64, w: f64) -> State {
+        State {
+            u,
+            v,
+            w,
+            p: 0.0,
+            q: 0.0,
+            r: 0.0,
+            phi: 0.0,
+            theta: 0.0,
+            psi: 0.0,
+            north: 0.0,
+            east: 0.0,
+            altitude: 0.0,
+        }
+    }
+
+    #[test]
+    fn envelope_flags_alpha_and_beta_beyond_twenty_degrees() {
+        let calm = [0.0; 3];
+        let (a, b, ok) = alpha_beta_envelope(&state_with(30.0, 0.0, 0.0), calm);
+        assert!(a.abs() < 1e-12 && b.abs() < 1e-12 && ok);
+        // α = 25° with no sideslip is outside the envelope.
+        let (a, _, ok) = alpha_beta_envelope(
+            &state_with(30.0, 0.0, 30.0 * 25f64.to_radians().tan()),
+            calm,
+        );
+        assert!((a - 25f64.to_radians()).abs() < 1e-9 && !ok);
+        // β = 25° with α = 0 is outside the envelope.
+        let (_, b, ok) = alpha_beta_envelope(
+            &state_with(30.0, 30.0 * 25f64.to_radians().tan(), 0.0),
+            calm,
+        );
+        assert!((b - 25f64.to_radians()).abs() < 1e-9 && !ok);
+    }
+
+    #[test]
+    fn envelope_uses_air_relative_velocity_not_ground_velocity() {
+        // Ground velocity is 20 m/s along body x, so a ground-speed α would be
+        // zero. A 10 m/s updraft (NED down component −10) makes the airspeed
+        // point 26.6° up, which is outside the envelope.
+        let wind = [0.0, 0.0, -10.0];
+        let (a, b, ok) = alpha_beta_envelope(&state_with(20.0, 0.0, 0.0), wind);
+        assert!((a - 10f64.atan2(20.0)).abs() < 1e-9, "alpha = {a}");
+        assert!(b.abs() < 1e-12 && !ok);
     }
 }

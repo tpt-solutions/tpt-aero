@@ -264,8 +264,11 @@ pub fn parse(text: &str) -> Result<AvlDeck, AvlError> {
                             expected: "Nchord Cspace Nspan Sspace",
                         });
                     }
-                    s.n_chord = n[0].round() as usize;
-                    s.n_span = n[2].round() as usize;
+                    // Round half up without `f64::round`, which is not in `no_std`.
+                    // For the non-negative counts used here this matches `round`,
+                    // and a negative value saturates to zero just as before.
+                    s.n_chord = (n[0] + 0.5) as usize;
+                    s.n_span = (n[2] + 0.5) as usize;
                     expecting_surface_header = false;
                     continue;
                 }

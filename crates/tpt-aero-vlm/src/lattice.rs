@@ -126,7 +126,7 @@ pub struct LatticeElement {
     pub chord: f64,
     /// Panel planform (projected) area.
     pub area: f64,
-    /// Spanwise strip index (0-based, root-side first).
+    /// Spanwise strip index (0-based, from the −y tip to the +y tip).
     pub strip: usize,
     /// Trailing-edge `x` of the panel at the collocation station (moment arm).
     pub x_te: f64,

@@ -3,6 +3,10 @@
 
 use alloc::vec::Vec;
 
+// Brings `ln` into scope on `no_std` targets, where `f64` has no inherent `ln`.
+#[allow(unused_imports)]
+use crate::num::Real as _;
+
 /// Errors from polar table construction.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PolarError {
@@ -222,7 +226,8 @@ pub struct PolarSet {
     polars: Vec<AirfoilPolar>,
     /// Distinct Mach numbers, ascending.
     machs: Vec<f64>,
-    /// For each Mach value, the Reynolds numbers of its tables (ascending).
+    /// For each Mach value, ln(Re) of its tables (ascending). Blending in
+    /// ln(Re) weights tables by decades, which is how Re effects scale.
     reynolds_at: Vec<Vec<f64>>,
     /// For each Mach value, indices into `polars` in the same Reynolds order.
     index_at: Vec<Vec<usize>>,
@@ -260,7 +265,7 @@ impl PolarSet {
                 index_at.push(Vec::new());
             }
             let g = machs.len() - 1;
-            reynolds_at[g].push(p.reynolds());
+            reynolds_at[g].push(p.reynolds().ln());
             index_at[g].push(i);
         }
         Ok(Self {
@@ -289,12 +294,14 @@ impl PolarSet {
     where
         F: Fn(&AirfoilPolar) -> f64,
     {
-        if self.machs.is_empty() {
+        // Re is a positive quantity; its logarithm is what the grid stores.
+        if self.machs.is_empty() || reynolds.is_nan() || reynolds <= 0.0 {
             return f64::NAN;
         }
+        let log_re = reynolds.ln();
         let (m0, m1, wm) = bracket(&self.machs, mach);
         let section = |mach_idx: usize| -> f64 {
-            let (r0, r1, wr) = bracket(&self.reynolds_at[mach_idx], reynolds);
+            let (r0, r1, wr) = bracket(&self.reynolds_at[mach_idx], log_re);
             let idx = &self.index_at[mach_idx];
             eval(&self.polars[idx[r0]]) * (1.0 - wr) + eval(&self.polars[idx[r1]]) * wr
         };
@@ -390,6 +397,22 @@ mod tests {
     }
 
     #[test]
+    fn polar_set_blends_reynolds_in_log_space() {
+        // Tables at Re = 1e5 and 1e6 with slopes 4 and 8. The geometric mean
+        // (√(1e5·1e6)) sits halfway in ln(Re), so the blend is the average
+        // slope. Linear-in-Re blending would weight the upper table far more.
+        let set = PolarSet::new(vec![flat_polar(4.0, 0.0, 1e5), flat_polar(8.0, 0.0, 1e6)])
+            .expect("valid");
+        let alpha = 2.0_f64.to_radians();
+        let mid_re = (1e5_f64 * 1e6).sqrt();
+        let cl_mid = set.cl_at(0.0, mid_re, alpha);
+        assert!((cl_mid - 6.0 * alpha).abs() < 1e-9, "{cl_mid}");
+        // Non-positive Re is rejected rather than taking a logarithm of it.
+        assert!(set.cl_at(0.0, 0.0, alpha).is_nan());
+        assert!(set.cl_at(0.0, -1.0, alpha).is_nan());
+    }
+
+    #[test]
     fn polar_set_blends_mach() {
         let set = PolarSet::new(vec![flat_polar(4.0, 0.0, 1e6), flat_polar(6.0, 0.4, 1e6)])
             .expect("valid");
@@ -460,7 +483,9 @@ mod stall_and_set_tests {
         ])
         .expect("valid");
         assert!((set.cl_at(0.0, 1e6, 0.5) - 0.5).abs() < 1e-12);
-        assert!((set.cl_at(0.0, 1.5e6, 0.5) - 0.55).abs() < 1e-9);
+        // Blend weight in ln(Re): ln 1.5 / ln 2 along the 1e6 → 2e6 segment.
+        let w = 1.5_f64.ln() / 2.0_f64.ln();
+        assert!((set.cl_at(0.0, 1.5e6, 0.5) - (0.5 + 0.1 * w)).abs() < 1e-9);
         assert!((set.cl_at(0.25, 1e6, 0.5) - 0.6).abs() < 1e-9);
         assert!(PolarSet::default().cl_at(0.0, 1e6, 0.5).is_nan());
     }

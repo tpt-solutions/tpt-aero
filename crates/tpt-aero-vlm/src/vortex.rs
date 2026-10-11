@@ -24,8 +24,12 @@ pub fn segment_velocity<R: Real>(a: &Vec3<R>, b: &Vec3<R>, p: &Vec3<R>, g: R) ->
     let cross_sq = cross.dot(&cross);
     let d1 = r1.norm();
     let d2 = r2.norm();
-    let eps = R::from_f64(1.0e-12);
-    if cross_sq.le_f(eps * eps) || d1.le_f(eps) || d2.le_f(eps) {
+    // Guards scale with the segment length, so the cut-off does not depend on
+    // the length unit (a 1e-12 m guard means something different for a 1 mm
+    // segment than for a 100 m one).
+    let len = r0.norm();
+    let eps = R::from_f64(1.0e-12) * len;
+    if cross_sq.le_f((eps * len) * (eps * len)) || d1.le_f(eps) || d2.le_f(eps) {
         return Vec3::zero();
     }
     let coeff = (r0.dot(&(r1.scaled(d1.recip()) - r2.scaled(d2.recip())))) / cross_sq
@@ -118,6 +122,24 @@ mod tests {
         let v = horseshoe_velocity(&a, &b, &d, &p, 1.0);
         assert!(v.y.abs() < 1e-12);
         assert!(v.z < 0.0); // downwash between the legs
+    }
+
+    #[test]
+    fn segment_velocity_is_length_unit_invariant() {
+        // Biot–Savart: scaling every coordinate by s scales the induced
+        // velocity by 1/s. The guards must not break this at small or large s.
+        let a = Vec3::new(0.0, -0.5, 0.0);
+        let b = Vec3::new(0.0, 0.5, 0.0);
+        let p = Vec3::new(0.3, 0.2, 0.1);
+        let base = segment_velocity(&a, &b, &p, 1.0);
+        for s in [1.0e-6, 1.0e-3, 1.0e3, 1.0e6] {
+            let sa = a.scaled(s);
+            let sb = b.scaled(s);
+            let sp = p.scaled(s);
+            let v = segment_velocity(&sa, &sb, &sp, 1.0).scaled(s);
+            let rel = (v - base).norm() / base.norm();
+            assert!(rel < 1e-9, "scale {s}: relative error {rel}");
+        }
     }
 
     #[test]

@@ -1,7 +1,15 @@
 name: setup-tpt-math
-description: Clone the sibling tpt-math workspace that Cargo.toml path-depends on (../tpt-math).
+description: Clone the sibling tpt-math workspace that Cargo.toml path-depends on (../tpt-math), pinned to a known commit.
 runs:
   using: composite
   steps:
     - shell: bash
-      run: git clone --depth 1 https://github.com/tpt-solutions/tpt-math.git "$GITHUB_WORKSPACE/../tpt-math"
+      # Pinned to the tpt-math commit this workspace was last tested against
+      # (origin/master at the time of pinning). Bump the SHA deliberately.
+      run: |
+        set -euo pipefail
+        dest="$GITHUB_WORKSPACE/../tpt-math"
+        git init --quiet "$dest"
+        git -C "$dest" remote add origin https://github.com/tpt-solutions/tpt-math.git
+        git -C "$dest" fetch --depth 1 origin 2b86a62c6f323d06c715c862304ae064f153c279
+        git -C "$dest" checkout --quiet FETCH_HEAD

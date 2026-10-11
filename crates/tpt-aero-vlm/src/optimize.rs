@@ -125,7 +125,8 @@ pub fn optimize_linear_twist(
 
     // Golden-section search on the tip twist, in degrees.
     let (mut lo, mut hi) = (-10.0_f64, 5.0_f64);
-    let phi = 0.5 * (5.0_f64.sqrt() - 1.0);
+    // Golden ratio conjugate, (√5 − 1)/2, as a literal (`sqrt` is not in `no_std`).
+    let phi = 0.618_033_988_749_894_9_f64;
     let mut x1 = hi - phi * (hi - lo);
     let mut x2 = lo + phi * (hi - lo);
     let mut f1 = eval(x1)?.0;

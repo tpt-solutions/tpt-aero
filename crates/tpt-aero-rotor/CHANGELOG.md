@@ -8,6 +8,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `BemtSolver::with_swirl(bool)` and `swirl()`: solve the tangential induction `a'` per annulus. Off by default so the validated hover numbers do not move.
+
+### Changed
+- `CylinderWake` uses an adaptive Simpson rule (to 1e-9 relative, capped at 4096 panels) rather than a fixed 4001-point rule.
+
+### Breaking
+- `SectionResult` has a new `swirl` field (zero unless swirl is enabled). Struct-literal construction needs it.
+
 ### Breaking
 - `DynamicInflow::step` takes an extra `tip_speed` argument (m/s). The time constant was previously off by a factor of the tip speed.
 

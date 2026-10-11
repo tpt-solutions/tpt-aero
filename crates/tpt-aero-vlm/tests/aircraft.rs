@@ -501,3 +501,57 @@ fn ground_effect_with_dihedral_and_a_fin_raises_lift_near_the_ground() {
         tpt_aero_vlm::VlmError::InvalidGroundHeight
     );
 }
+
+#[test]
+fn kernel_path_matches_direct_prepare_for_any_twist() {
+    // A kernel built once must reproduce `prepare_with_twists` exactly for
+    // every deflection, so the six-DOF loop can reuse it across control changes.
+    let m = controlled_aircraft();
+    let kernel = m.influence_kernel().expect("kernel");
+    assert_eq!(kernel.len(), m.lattice().len());
+    let state = FlightState {
+        alpha: 3.0 * DEG,
+        beta: 0.0,
+        p: 0.0,
+        q: 0.0,
+        r: 0.0,
+    };
+    for (name, d) in [
+        ("elevator", 0.0),
+        ("elevator", 0.1),
+        ("aileron", -0.05),
+        ("rudder", 0.08),
+    ] {
+        let index = m.control_index(name).expect("control");
+        let mut defl = vec![0.0; m.controls().len()];
+        defl[index] = d;
+        let twists = m.control_twists(&defl).unwrap();
+        let direct = m
+            .prepare_with_twists(&twists)
+            .unwrap()
+            .solve_state(&state, V, RHO)
+            .unwrap();
+        let via_kernel = m
+            .prepare_with_kernel(&kernel, &twists)
+            .unwrap()
+            .solve_state(&state, V, RHO)
+            .unwrap();
+        assert!(
+            (direct.c_lift - via_kernel.c_lift).abs() < 1e-12
+                && (direct.c_pitch - via_kernel.c_pitch).abs() < 1e-12
+                && (direct.c_side - via_kernel.c_side).abs() < 1e-12,
+            "{name} = {d}: {direct:?} vs {via_kernel:?}"
+        );
+    }
+}
+
+#[test]
+fn kernel_rejects_a_mismatched_lattice() {
+    let m = controlled_aircraft();
+    let other = VlmModel::from_surfaces(&[wing()]).unwrap();
+    let kernel = other.influence_kernel().unwrap();
+    assert_eq!(
+        m.prepare_with_kernel(&kernel, &[]).unwrap_err(),
+        VlmError::DimensionMismatch
+    );
+}

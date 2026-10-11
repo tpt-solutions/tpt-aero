@@ -1,0 +1,42 @@
+name: run-case
+description: "Run a tpt-aero case file through the CLI (wing, rotor or trim) and upload the output as a workflow artifact. Call it in a job after actions/checkout has checked out tpt-aero into the workspace root."
+inputs:
+  command:
+    description: "CLI subcommand to run: wing, rotor or trim."
+    required: true
+  case:
+    description: "Path to the case TOML, relative to the repository root."
+    required: true
+  args:
+    description: 'Extra CLI arguments, for example --speed 50 for trim or --rpm-sweep 2000:4000:500 for rotor.'
+    required: false
+    default: ""
+  output:
+    description: "File the CLI writes, uploaded as an artifact."
+    required: false
+    default: result.csv
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-tpt-math
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Run case
+      shell: bash
+      env:
+        RUN_COMMAND: ${{ inputs.command }}
+        RUN_CASE: ${{ inputs.case }}
+        RUN_ARGS: ${{ inputs.args }}
+        RUN_OUTPUT: ${{ inputs.output }}
+      run: |
+        set -euo pipefail
+        case "$RUN_COMMAND" in
+          wing|rotor|trim) ;;
+          *) echo "command must be wing, rotor or trim" >&2; exit 2 ;;
+        esac
+        # Arguments are split on whitespace on purpose; keep them simple.
+        cargo run --release -p tpt-aero-cli -- "$RUN_COMMAND" "$RUN_CASE" $RUN_ARGS --out "$RUN_OUTPUT"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: tpt-aero-${{ inputs.command }}-output
+        path: ${{ inputs.output }}

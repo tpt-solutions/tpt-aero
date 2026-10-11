@@ -97,3 +97,37 @@ models. Longitudinal state `[u, alpha, q, theta]` with inputs
 `[beta, p, r, phi]` with inputs `[aileron, rudder, sidewash]` (sidewash
 positive = air arriving from the right). Thrust is held constant in the
 phugoid model.
+
+## CLI output units
+
+Every column the command-line tool writes has a fixed unit. The text and CSV
+headers carry the names; this table is the reference.
+
+| Output | Column | Unit |
+|---|---|---|
+| `wing` CSV | `alpha_deg` | deg |
+| `wing` CSV | `cl`, `cdi`, `cm`, `cl_roll`, `cn`, `cd` | dimensionless (`cl_roll`, `cn` body-axis, see above) |
+| `wing` CSV | `lift_n` | N |
+| `wing` CSV | `l_over_d` | dimensionless, blank at zero drag |
+| `wing --spanwise` | `y_m`, `chord_m` | m |
+| `wing --spanwise` | `cl_section` | dimensionless |
+| `trim` (text, CSV) | `speed_ms` | m/s |
+| `trim` (text, CSV) | `density` | kg/m³ |
+| `trim` (text, CSV) | `bank_deg`, `alpha_deg`, `beta_deg`, `elevator_deg`, `aileron_deg`, `rudder_deg` | deg |
+| `trim` (text, CSV) | `thrust_n` | N |
+| `trim` (text, CSV) | `load_factor` | g |
+| `trim` (text, CSV) | `static_margin_mac` | fraction of MAC, positive = stable |
+| `trim` (text, CSV) | `cl_max_margin` | C_Lmax/C_L − 1 |
+| `trim` (text, CSV) | `turn_rate_deg_s` | deg/s |
+| `trim` (text, CSV) | `turn_radius_m` | m |
+| `rotor` sweeps | `rpm` | rpm |
+| `rotor` sweeps | `collective_deg` | deg |
+| `rotor` sweeps | `axial_speed_ms` | m/s |
+| `rotor` sweeps | `advance_ratio` | J = π λ_c, with D = 2R |
+| `rotor` sweeps | `thrust_n`, `torque_nm`, `power_w` | N, N·m, W |
+| `rotor` sweeps | `ct`, `cq`, `cp` | dimensionless (ΩR and ρ A (ΩR)² normalised) |
+
+The only imperial option is `isa --imperial`, which reads altitudes in feet.
+Trim and wing inputs and outputs are SI. A full imperial layer is deliberately
+not added: converting every case field doubles the surface for little gain,
+since the case files are TOML with explicit SI names.

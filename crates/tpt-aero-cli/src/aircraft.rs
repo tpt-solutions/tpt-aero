@@ -439,43 +439,77 @@ fn trim_failed(e: TrimError) -> CliError {
     }
 }
 
-/// Human-readable summary of a trim report.
-#[must_use]
-pub fn trim_text(r: &TrimReport) -> String {
-    let mut out = format!(
-        "kind                {}\nspeed_ms            {:.3}\ndensity             {:.5}\nbank_deg            {:.4}\nalpha_deg           {:.4}\nbeta_deg            {:.4}\nelevator_deg        {:.4}\n",
-        r.kind, r.speed_ms, r.density, r.bank_deg, r.alpha_deg, r.beta_deg, r.elevator_deg
-    );
+/// The trim report as `(quantity, value, unit)` rows, in report order. Shared
+/// by the text and CSV renderers so the two cannot drift apart.
+fn trim_rows(r: &TrimReport) -> Vec<(&'static str, String, &'static str)> {
+    let mut rows: Vec<(&'static str, String, &'static str)> = vec![
+        ("kind", r.kind.clone(), "-"),
+        ("speed_ms", format!("{:.3}", r.speed_ms), "m/s"),
+        ("density", format!("{:.5}", r.density), "kg/m^3"),
+        ("bank_deg", format!("{:.4}", r.bank_deg), "deg"),
+        ("alpha_deg", format!("{:.4}", r.alpha_deg), "deg"),
+        ("beta_deg", format!("{:.4}", r.beta_deg), "deg"),
+        ("elevator_deg", format!("{:.4}", r.elevator_deg), "deg"),
+    ];
     if let Some(a) = r.aileron_deg {
-        out.push_str(&format!("aileron_deg         {a:.4}\n"));
+        rows.push(("aileron_deg", format!("{a:.4}"), "deg"));
     }
     if let Some(d) = r.rudder_deg {
-        out.push_str(&format!("rudder_deg          {d:.4}\n"));
+        rows.push(("rudder_deg", format!("{d:.4}"), "deg"));
     }
     if let Some(t) = r.thrust_n {
-        out.push_str(&format!("thrust_n            {t:.3}\n"));
+        rows.push(("thrust_n", format!("{t:.3}"), "N"));
     }
-    out.push_str(&format!("load_factor         {:.5}\n", r.load_factor));
-    out.push_str(&format!("cl                  {:.5}\n", r.cl));
+    rows.push(("load_factor", format!("{:.5}", r.load_factor), "g"));
+    rows.push(("cl", format!("{:.5}", r.cl), "-"));
     if let Some(cd) = r.cd {
-        out.push_str(&format!("cd                  {cd:.5}\n"));
+        rows.push(("cd", format!("{cd:.5}"), "-"));
     }
     if let Some(ld) = r.lift_over_drag {
-        out.push_str(&format!("lift_over_drag      {ld:.3}\n"));
+        rows.push(("lift_over_drag", format!("{ld:.3}"), "-"));
     }
     if let Some(sm) = r.static_margin {
-        out.push_str(&format!(
-            "static_margin_mac   {sm:.4}   (positive = stable; fraction of the reference chord)\n"
+        // Fraction of the reference chord; positive is stable.
+        rows.push((
+            "static_margin_mac",
+            format!("{sm:.4}"),
+            "fraction of MAC (+ = stable)",
         ));
     }
     if let Some(m) = r.cl_max_margin {
-        out.push_str(&format!(
-            "cl_max_margin       {m:.4}   (C_Lmax / C_L - 1)\n"
-        ));
+        rows.push(("cl_max_margin", format!("{m:.4}"), "C_Lmax/C_L - 1"));
     }
-    out.push_str(&format!("turn_rate_deg_s     {:.4}\n", r.turn_rate_deg_s));
+    rows.push((
+        "turn_rate_deg_s",
+        format!("{:.4}", r.turn_rate_deg_s),
+        "deg/s",
+    ));
     if let Some(rad) = r.turn_radius_m {
-        out.push_str(&format!("turn_radius_m       {rad:.2}\n"));
+        rows.push(("turn_radius_m", format!("{rad:.2}"), "m"));
+    }
+    rows
+}
+
+/// Human-readable summary of a trim report: quantity, value and units columns.
+#[must_use]
+pub fn trim_text(r: &TrimReport) -> String {
+    let rows = trim_rows(r);
+    let name_w = rows.iter().map(|row| row.0.len()).max().unwrap_or(0);
+    let value_w = rows.iter().map(|row| row.1.len()).max().unwrap_or(0);
+    let mut out = String::new();
+    for (name, value, unit) in rows {
+        out.push_str(&format!("{name:<name_w$}  {value:>value_w$}  {unit}\n"));
+    }
+    out
+}
+
+/// The trim report as CSV with a `quantity,value,unit` header. Values are
+/// unquoted; the one text value (`kind`) has no commas.
+#[must_use]
+pub fn trim_csv(r: &TrimReport) -> String {
+    let mut out = String::from("quantity,value,unit\n");
+    for (name, value, unit) in trim_rows(r) {
+        out.push_str(&format!("{name},{value},{unit}\n"));
     }
     out
 }
@@ -673,6 +707,55 @@ pub fn aircraft_report(case_toml: &str, speed: f64, altitude: f64) -> Result<Str
         out.push_str("
 > Some inertias are estimates from the span (I_y ≈ m(b/3)², I_x ≈ m(b/4)², I_z ≈ m(b/2.5)²). Give `mass.inertia_x/y/z` in the case for measured values; the mode frequencies depend on them.
 ");
+    }
+    Ok(out)
+}
+
+/// Level trim swept over airspeed `start..=stop` m/s in steps of `step`, as CSV.
+///
+/// Columns: `speed_ms,alpha_deg,elevator_deg,cl,lift_over_drag,static_margin_mac,cl_max_margin`.
+/// Each row is one [`run_trim`] at that speed, so a trim that fails at any speed
+/// fails the sweep with that speed in the message.
+///
+/// # Errors
+/// [`CliError::Invalid`] for a non-finite bound, a non-positive step, a reversed
+/// range, or more than 1000 points; otherwise as [`run_trim`].
+pub fn run_trim_speed_sweep(
+    case_toml: &str,
+    altitude: f64,
+    start: f64,
+    stop: f64,
+    step: f64,
+) -> Result<String, CliError> {
+    let start = finite("sweep start", start)?;
+    let stop = finite("sweep stop", stop)?;
+    let step = positive("sweep step", step)?;
+    if stop < start {
+        return Err(CliError::Invalid("sweep stop must be ≥ start".into()));
+    }
+    let n = ((stop - start) / step + 1.0e-9).floor() as usize + 1;
+    if n > 1000 {
+        return Err(CliError::Invalid(
+            "speed sweep has more than 1000 points".into(),
+        ));
+    }
+    let mut out = String::from(
+        "speed_ms,alpha_deg,elevator_deg,cl,lift_over_drag,static_margin_mac,cl_max_margin\n",
+    );
+    for i in 0..n {
+        let v = ((start + step * i as f64) * 1.0e9).round() / 1.0e9;
+        let r = run_trim(case_toml, v, altitude, TrimKind::Level)
+            .map_err(|e| CliError::Solve(format!("trim failed at {v} m/s: {e}")))?;
+        let opt = |x: Option<f64>| x.map_or(String::new(), |x| format!("{x:.6}"));
+        out.push_str(&format!(
+            "{v},{:.6},{:.6},{:.6},{},{},{}\n",
+            r.alpha_deg,
+            r.elevator_deg,
+            r.cl,
+            opt(r.lift_over_drag),
+            opt(r.static_margin),
+            opt(r.cl_max_margin),
+        ));
     }
     Ok(out)
 }

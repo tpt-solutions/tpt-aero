@@ -9,6 +9,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `section_polar`, `flight_condition` and `control_deflection` strategies, with property tests: polar lookups stay within the table's range and match the linear slope, ISA density falls with altitude, and sampled flight conditions are inside the ISA range.
+
+### Added
 - Example `property_sweep`: using the proptest strategies outside a test suite.
 - proptest strategies: `symmetric_wing`, `angle_of_attack`, `freestream_speed`, `lattice_resolution`.
 - Physical-invariant property tests: symmetry gives zero roll and yaw, freestream reversal reverses lift, and dynamic-pressure scaling.

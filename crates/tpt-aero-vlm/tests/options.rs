@@ -284,3 +284,20 @@ fn surfaces_compressible_matches_planform_compressible_for_a_wing() {
     assert!((s1.cl - s2.cl).abs() < 1e-9);
     assert!(VlmModel::from_surfaces_compressible(&[Surface::horizontal(wing, 4, 2)], 1.0).is_err());
 }
+
+#[test]
+fn validity_flags_mark_each_limit_independently() {
+    use tpt_aero_vlm::{validity_flags, VALIDITY_ALPHA_LIMIT};
+    let ok = validity_flags(0.05, 0.02, 0.2, 1.0e6);
+    assert!(ok.all_ok());
+    // Each limit fails on its own; the others stay valid.
+    let high_alpha = validity_flags(VALIDITY_ALPHA_LIMIT + 0.01, 0.0, 0.2, 1.0e6);
+    assert!(
+        !high_alpha.alpha_ok && high_alpha.beta_ok && high_alpha.mach_ok && high_alpha.reynolds_ok
+    );
+    assert!(!validity_flags(0.0, 0.3, 0.2, 1.0e6).beta_ok);
+    assert!(!validity_flags(0.0, 0.0, 0.8, 1.0e6).mach_ok);
+    assert!(!validity_flags(0.0, 0.0, 0.2, 5.0e4).reynolds_ok);
+    // NaN never reads as valid.
+    assert!(!validity_flags(0.0, 0.0, f64::NAN, 1.0e6).mach_ok);
+}

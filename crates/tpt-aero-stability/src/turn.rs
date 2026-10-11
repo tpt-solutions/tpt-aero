@@ -212,9 +212,20 @@ fn newton(
 ) -> Result<([f64; N], usize), TrimError> {
     let mut x = x0;
     let h = 1.0e-6;
+    // The force residuals are coefficients whose natural size is W/(q S). Test
+    // them relative to that, so a heavy or low-speed trim is judged on the same
+    // footing as a light one. Moment coefficients are dimensionless already.
+    let force_scale = (s.weight_n / s.q_s).max(1.0);
+    let tol = [
+        1.0e-9 * force_scale,
+        1.0e-9 * force_scale,
+        1.0e-9,
+        1.0e-9,
+        1.0e-9,
+    ];
     for iteration in 0..=25 {
         let f = residual(model, s, &x, bank, turn_rate)?;
-        if f.iter().all(|fi| fi.abs() < 1.0e-9) {
+        if f.iter().zip(&tol).all(|(fi, t)| fi.abs() < *t) {
             return Ok((x, iteration));
         }
         if iteration == 25 {

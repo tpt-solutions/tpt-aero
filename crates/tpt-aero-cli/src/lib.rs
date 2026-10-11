@@ -43,8 +43,14 @@ pub(crate) fn check_mesh(label: &str, n_span: usize, n_chord: usize) -> Result<(
     Ok(())
 }
 
-pub use aircraft::{aircraft_report, run_trim, trim_text, TrimKind, TrimReport, AIRCRAFT_TEMPLATE};
-pub use rotor::{rotor_text, run_rotor, run_rotor_sweep, RotorReport, ROTOR_TEMPLATE};
+pub use aircraft::{
+    aircraft_report, run_trim, run_trim_speed_sweep, trim_csv, trim_text, TrimKind, TrimReport,
+    AIRCRAFT_TEMPLATE,
+};
+pub use rotor::{
+    rotor_text, run_rotor, run_rotor_sweep, run_rotor_sweep_over, RotorReport, SweepVariable,
+    ROTOR_TEMPLATE,
+};
 
 /// A fully commented starting point for `tpt-aero wing`.
 pub const TEMPLATE: &str = r#"# tpt-aero wing case. Run: tpt-aero wing wing.toml --out polar.csv
@@ -406,6 +412,51 @@ pub fn run_wing(case_toml: &str) -> Result<String, CliError> {
         out.push_str(&format!(
             "{alpha_deg},{:.8},{:.8},{:.8},{:.8},{:.8},{lift:.3},{cd:.8},{l_over_d}\n",
             sol.cl, sol.cdi, sol.cm, sol.cl_roll, sol.cn
+        ));
+    }
+    Ok(out)
+}
+
+/// Spanwise loading of a wing case at one angle of attack, as CSV:
+/// `strip,y_m,chord_m,cl_section`.
+///
+/// Each row is one spanwise strip, in the solver's strip order, which runs from
+/// the `−y` tip to the `+y` tip across the full span. `y_m` is the strip's mean
+/// collocation spanwise station, `chord_m` its mean chord, and `cl_section` its
+/// section lift coefficient.
+///
+/// # Errors
+/// As [`run_wing`], and [`CliError::Solve`] if the solve fails.
+pub fn run_wing_spanwise(case_toml: &str, alpha_deg: f64) -> Result<String, CliError> {
+    let alpha_deg = finite("alpha", alpha_deg)?;
+    let Built {
+        model,
+        speed,
+        density,
+        ..
+    } = build(case_toml)?;
+    let sol = model
+        .solve(alpha_deg.to_radians(), speed, density, &[])
+        .map_err(|e| CliError::Solve(e.to_string()))?;
+    let n = sol.strip_cl.len();
+    let mut y_sum = vec![0.0; n];
+    let mut chord_sum = vec![0.0; n];
+    let mut count = vec![0usize; n];
+    for e in model.lattice().elements() {
+        if e.strip < n {
+            y_sum[e.strip] += e.collocation.y;
+            chord_sum[e.strip] += e.chord;
+            count[e.strip] += 1;
+        }
+    }
+    let mut out = String::from("strip,y_m,chord_m,cl_section\n");
+    for s in 0..n {
+        let c = count[s].max(1) as f64;
+        out.push_str(&format!(
+            "{s},{:.6},{:.6},{:.8}\n",
+            y_sum[s] / c,
+            chord_sum[s] / c,
+            sol.strip_cl[s]
         ));
     }
     Ok(out)

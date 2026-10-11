@@ -76,6 +76,10 @@ pub struct SectionResult {
     pub dcq_dx: f64,
     /// Momentum-side annulus contribution (mass-flow consistency check).
     pub dct_dx_momentum: f64,
+    /// Tangential induction factor `a'` (swirl). Zero unless the solver was
+    /// built with [`BemtSolver::with_swirl`]. The blade sees tangential speed
+    /// `x (1 − a')` in units of ΩR.
+    pub swirl: f64,
 }
 
 /// Aggregate rotor loads in coefficient form.
@@ -119,6 +123,8 @@ pub struct BemtSolver {
     tolerance: f64,
     /// Under-relaxation factor for the induction update (0, 1].
     relaxation: f64,
+    /// Solve the tangential induction `a'` (swirl) per annulus.
+    swirl: bool,
 }
 
 impl BemtSolver {
@@ -147,7 +153,23 @@ impl BemtSolver {
             max_iterations: 200,
             tolerance: 1.0e-11,
             relaxation: 0.6,
+            swirl: false,
         })
+    }
+
+    /// Enable or disable the tangential induction `a'` (swirl). Off by default
+    /// so the axial-only results that the validation notes record do not move
+    /// unless asked; see `docs/VALIDATION.md` before changing the default.
+    #[must_use]
+    pub const fn with_swirl(mut self, swirl: bool) -> Self {
+        self.swirl = swirl;
+        self
+    }
+
+    /// Whether swirl (`a'`) is solved.
+    #[must_use]
+    pub const fn swirl(&self) -> bool {
+        self.swirl
     }
 
     /// Adjust iteration controls (builder pattern).
@@ -194,12 +216,15 @@ impl BemtSolver {
                 / (2.0 * core::f64::consts::PI * x * self.geometry.tip_radius);
             let theta = sec.twist + op.collective;
 
-            let (lambda_i, iters) = self.solve_annulus(x, sigma_r, theta, lambda_c)?;
+            let (lambda_i, swirl, iters) = self.solve_annulus(x, sigma_r, theta, lambda_c)?;
             let lambda_tot = (lambda_c + lambda_i).max(0.0);
-            let phi = lambda_tot.atan2(x);
+            // Blade-plane tangential speed x (1 − a') in ΩR units; a' = 0 is
+            // the axial-only model.
+            let u_t = x * (1.0 - swirl);
+            let phi = lambda_tot.atan2(u_t);
             let alpha = theta - phi;
             let (cl, cd) = self.section.coefficients(alpha);
-            let w2 = lambda_tot * lambda_tot + x * x;
+            let w2 = lambda_tot * lambda_tot + u_t * u_t;
             let loss = self.loss_factor(x, phi, lambda_tot);
 
             let dct_dx = x * sigma_r * w2 * (cl * phi.cos() - cd * phi.sin());
@@ -225,6 +250,7 @@ impl BemtSolver {
                 dct_dx,
                 dcq_dx,
                 dct_dx_momentum,
+                swirl,
             });
         }
 
@@ -238,32 +264,79 @@ impl BemtSolver {
         })
     }
 
-    /// Fixed-point iteration for the induced inflow ratio at one annulus.
+    /// Coupled solve at one annulus: the axial induction `λ_i` by bisection,
+    /// and, when swirl is on, the tangential induction `a'` by a relaxed
+    /// fixed-point outer loop around it.
     ///
-    /// Returns `(λ_i, iterations)` with `0 ≤ λ_i ≤ 1` — the physical bound
-    /// the Kani harness in `tpt-aero-verify` proves for the pure function
-    /// [`solve_induction_bounded`].
+    /// Returns `(λ_i, a', iterations)`. `λ_i` stays in `0 ≤ λ_i ≤ 1` — the
+    /// physical bound the Kani harness in `tpt-aero-verify` proves for the pure
+    /// function [`solve_induction_bounded`].
     fn solve_annulus(
         &self,
         x: f64,
         sigma_r: f64,
         theta: f64,
         lambda_c: f64,
-    ) -> Result<(f64, usize), RotorError> {
+    ) -> Result<(f64, f64, usize), RotorError> {
         let tip_loss = self.tip_loss;
         let hub_loss = self.hub_loss;
         let blades = self.geometry.blades;
-        solve_induction_counted(
-            sigma_r,
-            theta,
-            x,
-            lambda_c,
-            |alpha| self.section.coefficients(alpha),
-            |phi, lambda_tot| {
-                tip_loss.factor(x, phi, lambda_tot, blades) * hub_loss.factor(x, phi, blades)
-            },
-            self.max_iterations,
-        )
+        if !self.swirl {
+            let (lambda_i, iters) = solve_induction_counted(
+                sigma_r,
+                theta,
+                x,
+                lambda_c,
+                0.0,
+                |alpha| self.section.coefficients(alpha),
+                |phi, lambda_tot| {
+                    tip_loss.factor(x, phi, lambda_tot, blades) * hub_loss.factor(x, phi, blades)
+                },
+                self.max_iterations,
+            )?;
+            return Ok((lambda_i, 0.0, iters));
+        }
+
+        // Outer loop on a'. The tangential momentum balance gives
+        //   a' = σ W² (c_l sinφ + c_d cosφ) / (4 x λ_tot F),
+        // with W² = λ_tot² + (x(1 − a'))². Relaxed, and clamped to [0, 0.5].
+        let mut a_prime = 0.0_f64;
+        let mut total_iters = 0_usize;
+        for _ in 0..self.max_iterations {
+            let (li, iters) = solve_induction_counted(
+                sigma_r,
+                theta,
+                x,
+                lambda_c,
+                a_prime,
+                |alpha| self.section.coefficients(alpha),
+                |phi, lambda_tot| {
+                    tip_loss.factor(x, phi, lambda_tot, blades) * hub_loss.factor(x, phi, blades)
+                },
+                self.max_iterations,
+            )?;
+            total_iters += iters;
+            let lambda_tot = (lambda_c + li).max(0.0);
+            let u_t = x * (1.0 - a_prime);
+            let phi = lambda_tot.atan2(u_t);
+            let (cl, cd) = self.section.coefficients(theta - phi);
+            let loss = (tip_loss.factor(x, phi, lambda_tot, blades)
+                * hub_loss.factor(x, phi, blades))
+            .clamp(0.01, 1.0);
+            let target = if lambda_tot > 1.0e-9 {
+                let w2 = lambda_tot * lambda_tot + u_t * u_t;
+                (sigma_r * w2 * (cl * phi.sin() + cd * phi.cos()) / (4.0 * x * lambda_tot * loss))
+                    .clamp(0.0, 0.5)
+            } else {
+                0.0
+            };
+            let next = a_prime + self.relaxation * (target - a_prime);
+            if (next - a_prime).abs() < self.tolerance.max(1.0e-10) {
+                return Ok((li, next, total_iters));
+            }
+            a_prime = next;
+        }
+        Err(RotorError::NotConverged)
     }
 
     /// Combined tip/hub loss factor at one annulus.
@@ -350,6 +423,7 @@ pub fn solve_induction_bounded(
         theta,
         x,
         lambda_c,
+        0.0,
         coefficients,
         loss_factor,
         max_iterations,
@@ -359,28 +433,32 @@ pub fn solve_induction_bounded(
 }
 
 /// As [`solve_induction_bounded`], also returning the number of bisection
-/// halvings actually performed. Errors: [`RotorError::InvalidSection`] for a
-/// non-finite closure value, [`RotorError::NotConverged`] when the bracket is
-/// not narrowed to `1e-12` within `max_iterations` halvings.
+/// halvings actually performed. `swirl` is the tangential induction `a'` held
+/// fixed for this bisection (zero for the axial-only model). Errors:
+/// [`RotorError::InvalidSection`] for a non-finite closure value,
+/// [`RotorError::NotConverged`] when the bracket is not narrowed to `1e-12`
+/// within `max_iterations` halvings.
 #[allow(clippy::too_many_arguments)]
 fn solve_induction_counted(
     sigma_r: f64,
     theta: f64,
     x: f64,
     lambda_c: f64,
+    swirl: f64,
     coefficients: impl Fn(f64) -> (f64, f64),
     loss_factor: impl Fn(f64, f64) -> f64,
     max_iterations: usize,
 ) -> Result<(f64, usize), RotorError> {
+    let u_t = x * (1.0 - swirl);
     let residual = |lambda_i: f64| -> Option<f64> {
         let lambda_tot = (lambda_c + lambda_i).max(0.0);
-        let phi = lambda_tot.atan2(x);
+        let phi = lambda_tot.atan2(u_t);
         let alpha = theta - phi;
         let (cl, cd) = coefficients(alpha);
         if !(cl.is_finite() && cd.is_finite()) {
             return None;
         }
-        let w2 = lambda_tot * lambda_tot + x * x;
+        let w2 = lambda_tot * lambda_tot + u_t * u_t;
         let element = x * sigma_r * w2 * (cl * phi.cos() - cd * phi.sin());
         let loss = loss_factor(phi, lambda_tot).clamp(0.01, 1.0);
         Some(element - 4.0 * x * lambda_tot * lambda_i * loss)
