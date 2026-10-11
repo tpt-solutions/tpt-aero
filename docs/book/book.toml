@@ -1,0 +1,14 @@
+[book]
+title = "tpt-aero"
+authors = ["TPT Solutions"]
+language = "en"
+src = "src"
+description = "Pure-Rust aerodynamics and flight mechanics: the command line, case files and the library."
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/tpt-solutions/tpt-aero"

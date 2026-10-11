@@ -72,6 +72,39 @@ impl<const N: usize, const M: usize> StateSpace<N, M> {
 }
 
 impl<const M: usize> StateSpace<4, M> {
+    /// Append an integral of the tracking error `c · x − r_ref` as a fifth
+    /// state, `z' = c · x − r_ref`, where `c` is `output` and `r_ref` is input
+    /// slot `reference`.
+    ///
+    /// Closing a feedback loop on the augmented system with gain `k_z` on `z`
+    /// gives integral action, so a constant reference is tracked with no
+    /// steady offset. This is the autotrim of an attitude hold: the integrator
+    /// supplies the elevator offset that proportional feedback alone cannot.
+    ///
+    /// The integrator state is index `4`; the original four states keep their
+    /// indices.
+    ///
+    /// # Panics
+    /// If `reference >= M`.
+    #[must_use]
+    pub fn with_integrator(&self, output: [f64; 4], reference: usize) -> StateSpace<5, M> {
+        assert!(
+            reference < M,
+            "reference input {reference} out of range for {M} inputs"
+        );
+        let mut a = [[0.0; 5]; 5];
+        let mut b = [[0.0; M]; 5];
+        for i in 0..4 {
+            a[i][..4].copy_from_slice(&self.a[i]);
+            b[i] = self.b[i];
+        }
+        a[4][..4].copy_from_slice(&output);
+        b[4][reference] = -1.0;
+        StateSpace { a, b }
+    }
+}
+
+impl<const M: usize> StateSpace<4, M> {
     /// Eigenvalues of the dynamics matrix (see [`crate::modes::eigenvalues4`]).
     #[must_use]
     pub fn eigenvalues(&self) -> [crate::modes::Complex; 4] {

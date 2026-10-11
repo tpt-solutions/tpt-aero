@@ -12,7 +12,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use tpt_aero_vlm::lu_solve;
+use tpt_aero_core::linalg::lu_solve;
 
 use crate::source::{signed_area2, PanelError, Point2};
 

@@ -95,7 +95,7 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 - [x] Derivatives: CLα, Cmα, CLq, Cmq (longitudinal)
 - [x] Lateral-directional derivatives: Cyβ, Clβ, Cnβ, Cyp, Clp, Cnp, Cyr, Clr, Cnr (wing-alone, via sideslip/rates in `solve_state`; Cmq cross-checked against the incidence method to 0.1%)
 - [x] Control surface effectiveness derivatives: CLδ, Cmδ (longitudinal flap/elevator)
-- [ ] Aileron/rudder derivatives: Clδa, Cnδr
+- [x] Aileron/rudder derivatives: Clδa, Cnδr (Cnδr matches the fin side force times its moment arm to 1 %, test `rudder_yaw_moment_matches_fin_side_force_times_arm`; Clδa validated against lifting line, see Review follow-ups)
 - [x] Plant-matrix coupling hook for future `tpt-control` integration
 
 ### tpt-aero-verify (complete)
@@ -113,7 +113,7 @@ Tracks all tasks for the tpt-aero pure-Rust aerodynamics/flight-mechanics librar
 - [x] `examples/` directory: sample propeller BEMT sweep
 - [x] Final `cargo-deny` / license audit pass (confirm zero Apache-2.0-only runtime deps) — `cargo deny check` passes all categories
 - [ ] Version 0.1.0 tagging (version is already `0.1.0` in `Cargo.toml`; tag not yet created)
-- [ ] Publish readiness check (crates.io or internal registry, per house convention) — `tpt-aero-core` dry-run passes; umbrella `tpt-aero` requires the sub-crates published first, in dependency order, with the umbrella last
+- [x] Publish readiness check: `cargo publish --workspace --dry-run --allow-dirty` passes for all 9 crates (checked after the 2026-10 changes; nothing uploaded). The actual publish stays open, in dependency order with the umbrella last. If the dry run reports a missing `linalg` or similar, clear the stale verification build with `cargo clean -p <crate>` and remove the `-<hash>` directory under `~/.cargo/registry/src`
 
 ## Follow-up — VLM Oswald factor near zero lift
 
@@ -158,12 +158,24 @@ Done:
 - [x] Prelude + `isa_table`, `airfoil_cp`, `stability_derivatives` examples
 
 Open:
-- [ ] Panel imports `lu_solve` from vlm (layering); move to core / tpt-math
-- [ ] VLM: opt-in cosine spanwise spacing; wake along freestream
-- [ ] Turn/steady-sideslip trim; nonlinear 6-DOF simulation; integrator/autotrim in the attitude hold; fuselage and propeller effects
-- [ ] Viscous drag, VLM compressibility, ground effect, ISA offset/viscosity
-- [ ] CLI: rotor/stability subcommands, mdBook, cargo-generate templates
-- [ ] Validation: AVL / Caradonna-Tung / Navion reference cases; benches for rotor and panel
+- [x] Panel imports `lu_solve` from vlm (layering); moved to `tpt-aero-core::linalg`, re-exported from vlm
+- [x] VLM: opt-in cosine spanwise spacing (`SpanSpacing::Cosine`); opt-in freestream wake (`WakeModel::Freestream`, per-angle solves only)
+- [x] Turn/steady-sideslip trim (`trim_steady_turn`: coordinated turn and steady sideslip, continuation from level flight)
+- [x] Nonlinear 6-DOF simulation (`sixdof::simulate`, aircraft axes, VLM aerodynamics, Euler-angle RK4); checked against the level trim and the turn trim
+- [x] Integrator/autotrim in the attitude hold (`with_integrator`, integral error test)
+- [x] Fuselage and propeller effects, part 1. Done: fuselage parasite drag, Munk lift, side force and moments (`SlenderBody::munk_lift_and_moment`, `munk_side_force_and_yaw`), propeller thrust and torque reaction from BEMT, all through `sixdof::simulate_with_loads` (`propeller_flight` example).
+- [x] Propeller slipstream and its effect on the tail: two models, selectable. `SlipstreamModel::Tube` (momentum contracting tube, closed-form on-axis) and `SlipstreamModel::Cylinder` (`CylinderWake`, linearized vortex-cylinder field with full crossflow, exact on the axis and divergence-free). The `propeller_flight` example uses the cylinder by default and prints both at trim. Limits: linear (no wake contraction), tail angle of attack taken as the wing's (no downwash), and the VLM does not see the slipstream.
+- [x] Viscous drag (`tpt-aero-core::viscous`: flat-plate skin friction, Hoerner form factor, C_D0 build-up)
+- [x] VLM compressibility (Göthert rule, `from_planform_compressible`; matches Helmbold-Diederich lift slope ratio within 2 %)
+- [x] Ground effect (image horseshoes, `with_ground_height`)
+- [x] ISA offset and Sutherland viscosity (`at_isa_offset`, `dynamic_viscosity`, `kinematic_viscosity`)
+- [x] CLI: `rotor` and `trim` subcommands (with `template rotor|aircraft`)
+- [x] mdBook sources in `docs/book` (builds with mdbook 0.5)
+- [x] cargo-generate template in `templates/tpt-aero-analysis` (verified by substituting the placeholder and building; cargo-generate itself was not run, and the template depends on a published `tpt-aero`)
+- [x] Benches for rotor (`bemt`) and panel (`panel`)
+- [x] Validation against published data: Caradonna-Tung hover `C_T` (BEMT +23 %, recorded and bounded) and the Navion wing-tail `C_Lα` and `C_mα` from NASA TN D-6643 (recorded with bands; the moment gap is the missing fuselage). The tail arm is read from the report's figure. Sources and results are in `docs/VALIDATION.md`
+- [x] AVL 3.52 comparison on matched geometry (built from source with gfortran; decks and run script in `docs/validation/avl/`; `tpt-aero-stability/tests/avl_reference.rs`): wing alone, dihedral wing, refined T-tail. Agreement 1–4 % on the converged grid. Found and recorded: the VLM converges first order in spanwise strips, and the CLI template's tail-on-fin-root layout gives sideslip derivatives ~30 % off AVL
+- [ ] Validation still open: XFLR5 comparison (not run), swept / cambered / control-surface configurations against AVL, and measured data for the full six-DOF and compressible results
 - [x] `cargo publish --workspace --dry-run` passes for all 9 crates (dependency order handled by cargo)
 - [x] README rewritten; real per-crate READMEs; `docs/CONVENTIONS.md` and `docs/VALIDATION.md`
 - Note: repeated `cargo publish --workspace --dry-run` runs reuse an unpacked copy of the packaged crates in Cargo's registry cache (a `-<hash>` directory under `registry/src`, named after the temporary registry). After changing a crate without bumping its version, delete that directory first or verification builds against stale sources (this produced a false CLI failure once).

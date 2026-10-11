@@ -10,6 +10,12 @@ use serde::Deserialize;
 use tpt_aero::prelude::*;
 use tpt_aero::stability::lateral::lateral_fd;
 
+mod aircraft;
+mod rotor;
+
+pub use aircraft::{run_trim, trim_text, TrimKind, TrimReport, AIRCRAFT_TEMPLATE};
+pub use rotor::{rotor_text, run_rotor, RotorReport, ROTOR_TEMPLATE};
+
 /// A fully commented starting point for `tpt-aero wing`.
 pub const TEMPLATE: &str = r#"# tpt-aero wing case. Run: tpt-aero wing wing.toml --out polar.csv
 

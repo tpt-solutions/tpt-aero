@@ -57,6 +57,7 @@ cargo run --example airfoil_cp            # NACA 0012 pressure distribution
 cargo run --example propeller_sweep       # BEMT propeller map
 cargo run --example stability_derivatives # CG sweep and short-period mode
 cargo run --example isa_table             # standard atmosphere
+cargo run --release --example propeller_flight   # BEMT propeller in a 6-DOF run
 ```
 
 Or without writing Rust, with the `tpt-aero` command (`cargo install --path crates/tpt-aero-cli`):
@@ -67,6 +68,8 @@ tpt-aero wing wing.toml --out polar.csv     # alpha sweep to CSV
 tpt-aero derivatives wing.toml --alpha 4    # stability derivatives (--json for JSON)
 tpt-aero vtk wing.toml --alpha 5 --out lattice.vtk
 tpt-aero isa 0 5000 11000
+tpt-aero rotor rotor.toml                   # BEMT operating point (template rotor)
+tpt-aero trim aircraft.toml --speed 50 --bank 20   # coordinated turn trim
 ```
 
 ## Crates

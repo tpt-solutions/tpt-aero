@@ -33,6 +33,8 @@ impl core::fmt::Display for RotorError {
     }
 }
 
+impl core::error::Error for RotorError {}
+
 /// One blade station: chord and geometric twist at a span fraction.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BladeSection {

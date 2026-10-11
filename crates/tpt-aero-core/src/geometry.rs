@@ -374,6 +374,60 @@ impl WingPlanform {
         Self { sections: out }
     }
 
+    /// Section at spanwise station `y` (m), linearly interpolated between the
+    /// two bracketing sections. Stations outside the planform clamp to the
+    /// nearest end section.
+    #[must_use]
+    pub fn section_at_y(&self, y: f64) -> WingSection {
+        let first = self.sections[0];
+        let last = self.sections[self.sections.len() - 1];
+        if y <= first.le.y {
+            return first;
+        }
+        if y >= last.le.y {
+            return last;
+        }
+        let w = self
+            .sections
+            .windows(2)
+            .find(|w| y <= w[1].le.y)
+            .unwrap_or(&self.sections[self.sections.len() - 2..]);
+        let (a, b) = (&w[0], &w[1]);
+        let f = (y - a.le.y) / (b.le.y - a.le.y);
+        WingSection {
+            le: Vec3::new(
+                a.le.x + f * (b.le.x - a.le.x),
+                y,
+                a.le.z + f * (b.le.z - a.le.z),
+            ),
+            chord: a.chord + f * (b.chord - a.chord),
+            twist: a.twist + f * (b.twist - a.twist),
+        }
+    }
+
+    /// Insert `n` spanwise stations clustered toward the tips by the cosine
+    /// law, `y_k = y_0 + Δy · (1 − cos(π k / (n − 1))) / 2`, by interpolating
+    /// the planform (see [`WingPlanform::section_at_y`]).
+    ///
+    /// Use this when the tip loading gradient matters more than uniform strip
+    /// width, e.g. wings with strong taper or tip-mounted surfaces.
+    ///
+    /// # Panics
+    /// If `n < 2`.
+    #[must_use]
+    pub fn refine_cosine(&self, n: usize) -> Self {
+        assert!(n >= 2, "refine_cosine needs at least 2 stations");
+        let y0 = self.sections[0].le.y;
+        let dy = self.sections[self.sections.len() - 1].le.y - y0;
+        let sections = (0..n)
+            .map(|k| {
+                let theta = core::f64::consts::PI * k as f64 / (n - 1) as f64;
+                self.section_at_y(y0 + dy * 0.5 * (1.0 - theta.cos()))
+            })
+            .collect();
+        Self { sections }
+    }
+
     /// One [`LiftingLinePanel`] per adjacent section pair.
     #[must_use]
     pub fn lifting_line_panels(&self) -> Vec<LiftingLinePanel> {
@@ -419,6 +473,8 @@ impl core::fmt::Display for GeometryError {
         }
     }
 }
+
+impl core::error::Error for GeometryError {}
 
 /// Linear interpolation over `t ∈ [0,1]` between two scalars.
 #[must_use]

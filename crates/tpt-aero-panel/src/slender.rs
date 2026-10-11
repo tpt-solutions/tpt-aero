@@ -37,6 +37,8 @@ impl core::fmt::Display for SlenderError {
     }
 }
 
+impl core::error::Error for SlenderError {}
+
 impl SlenderBody {
     /// Build and validate a profile.
     ///
@@ -132,6 +134,78 @@ impl SlenderBody {
     }
 }
 
+impl SlenderBody {
+    /// First-order (Munk) normal force and pitching moment of the body at
+    /// incidence `alpha_rad`.
+    ///
+    /// Slender-body potential theory gives a sectional normal force per unit
+    /// length `l(x) = ρ V∞ α dS/dx`, where `S(x) = π r(x)²` is the local cross
+    /// section. The body lift is `∫ l dx`, which for a bluff tail is about
+    /// `ρ V∞ α (S(L) − S(0))`, and the moment about `x_cg` (positive aft,
+    /// nose-up positive) is `−∫ (x − x_cg) l dx`.
+    ///
+    /// Returns `(lift, moment)` in N and N·m, with lift positive up. This is a
+    /// first-order estimate for slender bodies at small incidence, not a
+    /// substitute for a body panel model.
+    #[must_use]
+    pub fn munk_lift_and_moment(
+        &self,
+        rho: f64,
+        v_inf: f64,
+        alpha_rad: f64,
+        x_cg: f64,
+    ) -> (f64, f64) {
+        let analysis = self.surface_analysis(v_inf);
+        let mut lift = 0.0;
+        let mut moment = 0.0;
+        for (w, a) in self.x.windows(2).zip(analysis.windows(2)) {
+            let dx = w[1] - w[0];
+            let l0 = rho * v_inf * alpha_rad * a[0].0;
+            let l1 = rho * v_inf * alpha_rad * a[1].0;
+            let (x0, x1) = (w[0] - x_cg, w[1] - x_cg);
+            lift += 0.5 * (l0 + l1) * dx;
+            moment -= 0.5 * (x0 * l0 + x1 * l1) * dx;
+        }
+        (lift, moment)
+    }
+}
+
+impl SlenderBody {
+    /// First-order (Munk) side force and yawing moment of the body at sideslip
+    /// `beta_rad` (wind from the right positive).
+    ///
+    /// The sectional side force per unit length is `−ρ V∞² β dS/dx`, the lateral
+    /// counterpart of the lift in [`SlenderBody::munk_lift_and_moment`]. The side
+    /// force is negative for a positive sideslip, and the yawing moment about
+    /// `x_cg` (positive nose-right) is `ρ V∞² β ∫ (x − x_cg) dS/dx dx`. An
+    /// aft-heavy body therefore gives weathercock stability.
+    ///
+    /// Returns `(side_force, yaw_moment)` in N and N·m, side force positive to
+    /// the right. A first-order estimate at small sideslip.
+    #[must_use]
+    pub fn munk_side_force_and_yaw(
+        &self,
+        rho: f64,
+        v_inf: f64,
+        beta_rad: f64,
+        x_cg: f64,
+    ) -> (f64, f64) {
+        let analysis = self.surface_analysis(v_inf);
+        let k = rho * v_inf * v_inf * beta_rad;
+        let mut side = 0.0;
+        let mut yaw = 0.0;
+        for (w, a) in self.x.windows(2).zip(analysis.windows(2)) {
+            let dx = w[1] - w[0];
+            let s0 = a[0].0;
+            let s1 = a[1].0;
+            let (x0, x1) = (w[0] - x_cg, w[1] - x_cg);
+            side -= 0.5 * k * (s0 + s1) * dx;
+            yaw += 0.5 * k * (x0 * s0 + x1 * s1) * dx;
+        }
+        (side, yaw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +235,69 @@ mod tests {
             fx += cp * 0.5 * (a[0].0 + a[1].0) * dx;
         }
         assert!(fx.abs() < 1.0, "axial force {fx} (d'Alembert violation)");
+    }
+
+    #[test]
+    fn munk_lift_is_the_area_change_over_the_body() {
+        // A blunt-tailed body: S(0) = 0 at the nose, S(L) = π·0.2² at the base.
+        let n = 81;
+        let x: Vec<f64> = (0..n).map(|i| 4.0 * i as f64 / (n - 1) as f64).collect();
+        let radius: Vec<f64> = x
+            .iter()
+            .map(|&xi| 0.2 * (xi / 4.0).sqrt().min(1.0))
+            .collect();
+        let b = SlenderBody::new(x, radius).unwrap();
+        let (rho, v, alpha) = (1.225, 50.0, 0.05);
+        let (lift, _) = b.munk_lift_and_moment(rho, v, alpha, 2.0);
+        let s_base = core::f64::consts::PI * 0.2 * 0.2;
+        let expected = rho * v * alpha * s_base;
+        assert!(
+            (lift / expected - 1.0).abs() < 0.02,
+            "lift {lift} vs {expected}"
+        );
+    }
+
+    #[test]
+    fn munk_moment_is_nose_down_when_the_lift_acts_aft_of_the_cg() {
+        let n = 81;
+        let x: Vec<f64> = (0..n).map(|i| 4.0 * i as f64 / (n - 1) as f64).collect();
+        let radius: Vec<f64> = x
+            .iter()
+            .map(|&xi| 0.2 * (xi / 4.0).sqrt().min(1.0))
+            .collect();
+        let b = SlenderBody::new(x, radius).unwrap();
+        let (lift, moment_fwd) = b.munk_lift_and_moment(1.225, 50.0, 0.05, 1.0);
+        let (_, moment_aft) = b.munk_lift_and_moment(1.225, 50.0, 0.05, 3.0);
+        assert!(lift > 0.0);
+        // Moving the CG aft moves the lift forward of it, so the nose-up moment rises.
+        assert!(moment_aft > moment_fwd);
+        // The lift acts behind the CG at 1 m, so the moment is nose-down.
+        assert!(moment_fwd < 0.0);
+    }
+
+    #[test]
+    fn munk_side_force_opposes_sideslip_and_weathercock_yaw_needs_aft_area() {
+        let n = 81;
+        let x: Vec<f64> = (0..n).map(|i| 4.0 * i as f64 / (n - 1) as f64).collect();
+        let radius: Vec<f64> = x
+            .iter()
+            .map(|&xi| 0.2 * (xi / 4.0).sqrt().min(1.0))
+            .collect();
+        let b = SlenderBody::new(x, radius).unwrap();
+        let (rho, v, beta) = (1.225, 50.0, 0.05);
+        // CG ahead of the area centroid (about 2 m for this profile), so the yaw is positive.
+        let (side, yaw) = b.munk_side_force_and_yaw(rho, v, beta, 1.0);
+        // Side force is −ρV²β ΔS, opposite to a sideslip from the right.
+        let expected = -rho * v * v * beta * core::f64::consts::PI * 0.2 * 0.2;
+        assert!(
+            (side / expected - 1.0).abs() < 0.02,
+            "side {side} vs {expected}"
+        );
+        // The aft-heavy body is weathercock stable: positive yaw for β > 0.
+        assert!(yaw > 0.0, "yaw {yaw}");
+        // Moving the CG aft reduces the restoring yaw.
+        let (_, yaw_aft) = b.munk_side_force_and_yaw(rho, v, beta, 3.0);
+        assert!(yaw_aft < yaw);
     }
 
     #[test]

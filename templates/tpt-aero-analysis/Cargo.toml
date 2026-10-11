@@ -1,0 +1,10 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2021"
+description = "Aerodynamic analysis built on tpt-aero."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Pin to the published release once it is available on crates.io.
+tpt-aero = "0.1.0"

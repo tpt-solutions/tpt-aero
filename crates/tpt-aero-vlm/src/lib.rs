@@ -31,15 +31,16 @@ extern crate alloc;
 pub mod aircraft;
 pub mod export;
 pub mod lattice;
-pub mod linalg;
 pub mod solver;
 pub mod vortex;
 
 pub use aircraft::{Control, ControlRegion, ControlSymmetry, Surface};
-pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError};
-pub use linalg::{cholesky_spd, lu_solve, lu_solve_generic, LuFactors, SolveError};
+pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError, SpanSpacing};
 pub use solver::{
     FlightState, PreparedVlm, ReferenceGeometry, StateLoads, VlmError, VlmModel, VlmSolution,
-    VlmSolutionFields,
+    VlmSolutionFields, WakeModel,
 };
+/// Native linear solves, re-exported from `tpt-aero-core` so existing paths keep working.
+pub use tpt_aero_core::linalg;
+pub use tpt_aero_core::linalg::{cholesky_spd, lu_solve, lu_solve_generic, LuFactors, SolveError};
 pub use vortex::{horseshoe_velocity, segment_velocity, semi_infinite_velocity};

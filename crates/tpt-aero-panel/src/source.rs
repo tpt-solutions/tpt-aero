@@ -6,7 +6,7 @@
 
 use alloc::{vec, vec::Vec};
 
-use tpt_aero_vlm::lu_solve;
+use tpt_aero_core::linalg::lu_solve;
 
 /// Errors from panel solves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +33,8 @@ impl core::fmt::Display for PanelError {
         }
     }
 }
+
+impl core::error::Error for PanelError {}
 
 #[allow(unused_imports)]
 use tpt_aero_core::Real as _;

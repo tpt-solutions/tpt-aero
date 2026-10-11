@@ -1,0 +1,4 @@
+[template]
+cargo_generate_version = ">=0.20.0"
+# Only the placeholder {{project-name}} is substituted; nothing to ask.
+ignore = ["target", "Cargo.lock"]

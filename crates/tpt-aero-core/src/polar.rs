@@ -21,6 +21,8 @@ impl core::fmt::Display for PolarError {
     }
 }
 
+impl core::error::Error for PolarError {}
+
 /// Linear interpolation on a strictly increasing grid, clamped at the ends.
 pub(crate) fn interp_linear(xs: &[f64], ys: &[f64], x: f64) -> f64 {
     debug_assert_eq!(xs.len(), ys.len());

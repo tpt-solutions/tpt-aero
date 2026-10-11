@@ -35,6 +35,8 @@ impl core::fmt::Display for AirfoilError {
     }
 }
 
+impl core::error::Error for AirfoilError {}
+
 /// Airfoil surface coordinates as a single closed-ish loop: upper surface from
 /// trailing edge to leading edge, then lower surface from leading edge back to
 /// trailing edge. Chordwise coordinate `x ∈ [0, 1]`, `y` in chord units.

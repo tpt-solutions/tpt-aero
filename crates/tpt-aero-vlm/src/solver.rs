@@ -34,6 +34,27 @@ pub enum VlmError {
     DimensionMismatch,
     /// Non-finite angle of attack, or non-positive/non-finite speed or density.
     InvalidFlightCondition,
+    /// A cached (prepared) solve was requested on a model with a
+    /// [`WakeModel::Freestream`] wake. The cache assumes the body-axis wake,
+    /// so solve each angle with [`VlmModel::solve`] instead.
+    FreestreamWakeNotPrepared,
+    /// The ground-plane height is not finite and positive.
+    InvalidGroundHeight,
+}
+
+/// Direction of the horseshoe trailing legs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WakeModel {
+    /// Trailing legs along body `+x` for every angle of attack (the default).
+    /// Keeps the AIC independent of the flow state, so the model is exactly
+    /// linear in V∞ and the prepared/cached solve paths are available.
+    #[default]
+    BodyAxis,
+    /// Trailing legs along the freestream direction `(cos α, 0, sin α)`. The
+    /// AIC then depends on α, so only [`VlmModel::solve`] (and
+    /// [`VlmModel::solve_generic`]) support it. Identical to
+    /// [`WakeModel::BodyAxis`] at α = 0.
+    Freestream,
 }
 
 impl core::fmt::Display for VlmError {
@@ -48,9 +69,18 @@ impl core::fmt::Display for VlmError {
                 f,
                 "angle of attack must be finite; speed and density must be finite and positive"
             ),
+            VlmError::FreestreamWakeNotPrepared => write!(
+                f,
+                "prepared solves need the body-axis wake; solve freestream-wake models per angle"
+            ),
+            VlmError::InvalidGroundHeight => {
+                write!(f, "ground height must be finite and positive")
+            }
         }
     }
 }
+
+impl core::error::Error for VlmError {}
 
 impl From<SolveError> for VlmError {
     fn from(e: SolveError) -> Self {
@@ -216,6 +246,11 @@ pub struct StateLoads {
     pub c_roll: f64,
     /// Yawing-moment coefficient (reference span).
     pub c_yaw: f64,
+    /// Dimensional force on the surface (N), model frame (x aft, y right,
+    /// z up), before any wind-axis projection.
+    pub force_n: [f64; 3],
+    /// Dimensional moment (N·m) about the model's moment reference point, model frame.
+    pub moment_nm: [f64; 3],
 }
 
 /// A VLM model with its geometry-only work done up front: the LU factors of
@@ -356,7 +391,7 @@ impl PreparedVlm<'_> {
         let drag_dir = v.normalized();
         let lift_dir = drag_dir.cross(&Vec3::new(0.0, 1.0, 0.0)).normalized();
         let side_dir = lift_dir.cross(&drag_dir);
-        let q_s = 0.5 * density * v_inf * v_inf * refg.area;
+        let q_s = 0.5 * density * v_inf * v_inf * refg.area * m.beta;
         Ok(StateLoads {
             c_lift: force.dot(&lift_dir) / q_s,
             c_drag: force.dot(&drag_dir) / q_s,
@@ -365,6 +400,8 @@ impl PreparedVlm<'_> {
             // Moments about the stability axes (see above).
             c_roll: moment.dot(&forward) / (q_s * refg.span),
             c_yaw: moment.dot(&down) / (q_s * refg.span),
+            force_n: [force.x, force.y, force.z],
+            moment_nm: [moment.x, moment.y, moment.z],
         })
     }
 }
@@ -384,6 +421,10 @@ pub struct VlmModel {
     lattice: Lattice,
     reference: ReferenceGeometry,
     controls: Vec<ControlRegion>,
+    wake: WakeModel,
+    ground_height: Option<f64>,
+    /// Göthert/Prandtl–Glauert factor `β = √(1 − M²)`; `1` when incompressible.
+    beta: f64,
 }
 
 impl VlmModel {
@@ -397,13 +438,152 @@ impl VlmModel {
         n_chord: usize,
         camber: crate::lattice::CamberModel,
     ) -> Result<Self, VlmError> {
-        let lattice =
-            Lattice::build(planform, n_span, n_chord, camber).map_err(VlmError::Lattice)?;
+        Self::from_planform_spaced(
+            planform,
+            n_span,
+            n_chord,
+            camber,
+            crate::lattice::SpanSpacing::Uniform,
+        )
+    }
+
+    /// Like [`VlmModel::from_planform`], with an explicit spanwise strip
+    /// distribution (see [`crate::SpanSpacing`]).
+    ///
+    /// # Errors
+    /// Propagates [`crate::LatticeError`].
+    pub fn from_planform_spaced(
+        planform: &tpt_aero_core::WingPlanform,
+        n_span: usize,
+        n_chord: usize,
+        camber: crate::lattice::CamberModel,
+        spacing: crate::lattice::SpanSpacing,
+    ) -> Result<Self, VlmError> {
+        let lattice = Lattice::build_spaced(planform, n_span, n_chord, camber, spacing)
+            .map_err(VlmError::Lattice)?;
         Ok(Self {
             lattice,
             reference: ReferenceGeometry::from_planform(planform),
             controls: Vec::new(),
+            wake: WakeModel::BodyAxis,
+            ground_height: None,
+            beta: 1.0,
         })
+    }
+
+    /// Build a subsonic compressible model at free-stream Mach number `mach`
+    /// by Göthert's rule: the planform is stretched spanwise by
+    /// `β = √(1 − M²)`, solved incompressibly, and every force and moment
+    /// coefficient is divided by `β`.
+    ///
+    /// This reproduces the Helmbold–Diederich lift slope
+    /// `C_Lα = 2πAR / (2 + √(4 + (βAR)²))` for a straight wing. Coefficients are
+    /// referenced to the stretched planform (`S' = βS`, `b' = βb`), which is
+    /// what the Göthert transformation requires. Use `V∞` as the true speed.
+    ///
+    /// # Errors
+    /// [`VlmError::InvalidFlightCondition`] unless `0 ≤ mach < 1`;
+    /// [`VlmError::Lattice`] if the stretched planform is invalid.
+    pub fn from_planform_compressible(
+        planform: &tpt_aero_core::WingPlanform,
+        n_span: usize,
+        n_chord: usize,
+        camber: crate::lattice::CamberModel,
+        mach: f64,
+    ) -> Result<Self, VlmError> {
+        if !(mach.is_finite() && (0.0..1.0).contains(&mach)) {
+            return Err(VlmError::InvalidFlightCondition);
+        }
+        let beta = (1.0 - mach * mach).sqrt();
+        let sections = planform
+            .sections()
+            .iter()
+            .map(|sec| tpt_aero_core::WingSection {
+                le: tpt_aero_core::Vec3::new(sec.le.x, sec.le.y * beta, sec.le.z),
+                chord: sec.chord,
+                twist: sec.twist,
+            })
+            .collect();
+        let stretched = tpt_aero_core::WingPlanform::from_sections(sections)
+            .map_err(|_| VlmError::Lattice(crate::lattice::LatticeError::InvalidPlanform))?;
+        let mut model = Self::from_planform_spaced(
+            &stretched,
+            n_span,
+            n_chord,
+            camber,
+            crate::lattice::SpanSpacing::Uniform,
+        )?;
+        model.beta = beta;
+        Ok(model)
+    }
+
+    /// The Göthert/Prandtl–Glauert factor `β` (`1` for an incompressible model).
+    #[must_use]
+    pub const fn compressibility_beta(&self) -> f64 {
+        self.beta
+    }
+
+    /// Choose the trailing-leg direction (see [`WakeModel`]). Defaults to
+    /// [`WakeModel::BodyAxis`].
+    #[must_use]
+    pub fn with_wake(mut self, wake: WakeModel) -> Self {
+        self.wake = wake;
+        self
+    }
+
+    /// Place the model over a flat ground plane `height` metres below its
+    /// origin (body `z = −height`). The ground is modelled by image horseshoe
+    /// vortices mirrored through the plane with opposite circulation, which
+    /// reduces induced downwash and so the induced drag, and increases lift
+    /// at a given angle of attack (ground effect).
+    #[must_use]
+    pub fn with_ground_height(mut self, height: f64) -> Self {
+        self.ground_height = Some(height);
+        self
+    }
+
+    /// The ground-plane height below the origin, if the model is in ground
+    /// effect.
+    #[must_use]
+    pub const fn ground_height(&self) -> Option<f64> {
+        self.ground_height
+    }
+
+    /// Image-vortex contribution of the ground plane at point `p` from a
+    /// horseshoe `(a, b, d)` of circulation `g`; zero when out of ground
+    /// effect. The image mirrors `z → −2h − z`, flips the direction's `z`
+    /// component, and carries circulation `−g`.
+    fn image_horseshoe<R: Real>(
+        &self,
+        a: &Vec3<R>,
+        b: &Vec3<R>,
+        d: &Vec3<R>,
+        p: &Vec3<R>,
+        g: R,
+    ) -> Vec3<R> {
+        match self.ground_height {
+            None => Vec3::zero(),
+            Some(h) => {
+                let two_h = R::from_f64(-2.0 * h);
+                let mirror = |v: &Vec3<R>| Vec3::new(v.x, v.y, two_h - v.z);
+                let dm = Vec3::new(d.x, d.y, d.z.neg());
+                horseshoe_velocity(&mirror(a), &mirror(b), &dm, p, g.neg())
+            }
+        }
+    }
+
+    /// Reject a ground height that is not finite and positive.
+    fn check_ground(&self) -> Result<(), VlmError> {
+        match self.ground_height {
+            Some(h) if !(h.is_finite() && h > 0.0) => Err(VlmError::InvalidGroundHeight),
+            _ => Ok(()),
+        }
+    }
+
+    /// The trailing-leg direction this model uses.
+    #[must_use]
+    pub const fn wake(&self) -> WakeModel {
+        self.wake
     }
 
     /// Build from a pre-made lattice; reference geometry is estimated from
@@ -424,6 +604,9 @@ impl VlmModel {
         };
         Self {
             controls: Vec::new(),
+            wake: WakeModel::BodyAxis,
+            ground_height: None,
+            beta: 1.0,
             lattice,
             reference: ReferenceGeometry {
                 area,
@@ -552,21 +735,24 @@ impl VlmModel {
         if !twists.is_empty() && twists.len() != n {
             return Err(VlmError::DimensionMismatch);
         }
+        self.check_ground()?;
         let zero = R::zero();
         // Effective twist = the planform's own geometric twist plus the
         // per-solve perturbation (the differentiable design variable).
         let twist_at =
             |i: usize| R::from_f64(elements[i].twist) + twists.get(i).copied().unwrap_or(zero);
 
-        // Freestream (body frame). The horseshoe trailing legs convect along
-        // the fixed body +x axis: this keeps the AIC matrix independent of
-        // the flow state, so the model is exactly linear in V∞ (freestream
-        // reversal ⇒ exact force reversal) and avoids upstream-leg
-        // singularities at large |α|. For the small incidences VLM is valid
-        // for, this is indistinguishable from a freestream-aligned wake.
+        // Freestream (body frame) and trailing-leg direction. The default body
+        // +x wake keeps the AIC matrix independent of the flow state, so the
+        // model is exactly linear in V∞ (freestream reversal ⇒ exact force
+        // reversal) and avoids upstream-leg singularities at large |α|. The
+        // opt-in freestream wake aligns the legs with the flow instead.
         let (s, c) = alpha_rad.sin_cos();
         let v = Vec3::new(v_inf * c, zero, v_inf * s);
-        let d = Vec3::new(R::one(), zero, zero);
+        let d = match self.wake {
+            WakeModel::BodyAxis => Vec3::new(R::one(), zero, zero),
+            WakeModel::Freestream => Vec3::new(c, zero, s),
+        };
 
         // AIC: a_ij = n_i · v_j(cp_i) [1/m]; rhs_i = −V∞·n_i [m/s].
         let mut a: Vec<Vec<R>> = vec![vec![zero; n]; n];
@@ -577,7 +763,8 @@ impl VlmModel {
             rhs[i] = v.dot(&ni).neg();
             for (j, ej) in elements.iter().enumerate() {
                 let (ba, bb) = ej.bounds::<R>();
-                let vel = horseshoe_velocity(&ba, &bb, &d, &cp, R::one());
+                let vel = horseshoe_velocity(&ba, &bb, &d, &cp, R::one())
+                    + self.image_horseshoe(&ba, &bb, &d, &cp, R::one());
                 a[i][j] = ni.dot(&vel);
             }
         }
@@ -620,19 +807,43 @@ impl VlmModel {
     /// # Errors
     /// [`VlmError::SingularAic`] when the AIC matrix is numerically singular.
     pub fn prepare(&self) -> Result<PreparedVlm<'_>, VlmError> {
+        self.prepare_with_twists(&[])
+    }
+
+    /// [`VlmModel::prepare`] with per-element twist perturbations added to the
+    /// geometric twist (rad, one per element, as from
+    /// [`VlmModel::control_twists`]). Empty `twists` means zero perturbation.
+    /// Only the surface normals and the AIC factorization depend on twist, so
+    /// this is the entry point for control-deflected stability loads.
+    ///
+    /// # Errors
+    /// [`VlmError::FreestreamWakeNotPrepared`], [`VlmError::InvalidGroundHeight`],
+    /// [`VlmError::DimensionMismatch`] for a wrong-length twist slice, or
+    /// [`VlmError::SingularAic`].
+    pub fn prepare_with_twists(&self, twists: &[f64]) -> Result<PreparedVlm<'_>, VlmError> {
+        if self.wake == WakeModel::Freestream {
+            return Err(VlmError::FreestreamWakeNotPrepared);
+        }
+        self.check_ground()?;
         let elements = self.lattice.elements();
         let n = elements.len();
+        if !twists.is_empty() && twists.len() != n {
+            return Err(VlmError::DimensionMismatch);
+        }
         let d = Vec3::new(1.0, 0.0, 0.0);
         let normals: Vec<Vec3<f64>> = elements
             .iter()
-            .map(|e| e.normal_for_twist(e.twist))
+            .enumerate()
+            .map(|(i, e)| e.normal_for_twist(e.twist + twists.get(i).copied().unwrap_or(0.0)))
             .collect();
         let mut a = vec![vec![0.0; n]; n];
         for (i, ei) in elements.iter().enumerate() {
             let cp = ei.cp::<f64>();
             for (j, ej) in elements.iter().enumerate() {
                 let (ba, bb) = ej.bounds::<f64>();
-                a[i][j] = normals[i].dot(&horseshoe_velocity(&ba, &bb, &d, &cp, 1.0));
+                let vel = horseshoe_velocity(&ba, &bb, &d, &cp, 1.0)
+                    + self.image_horseshoe(&ba, &bb, &d, &cp, 1.0);
+                a[i][j] = normals[i].dot(&vel);
             }
         }
         let lu = LuFactors::factor(&a)?;
@@ -644,12 +855,13 @@ impl VlmModel {
                 let (ka, kb) = ek.bounds::<f64>();
                 // Same load model as `local_velocity`: an element's own bound
                 // segment is excluded, its trailing legs are kept.
-                influence.push(if k == j {
+                let direct = if k == j {
                     semi_infinite_velocity(&kb, &d, &mid, 1.0)
                         + semi_infinite_velocity(&ka, &d, &mid, -1.0)
                 } else {
                     horseshoe_velocity(&ka, &kb, &d, &mid, 1.0)
-                });
+                };
+                influence.push(direct + self.image_horseshoe(&ka, &kb, &d, &mid, 1.0));
             }
         }
         Ok(PreparedVlm {
@@ -672,6 +884,13 @@ impl VlmModel {
         v_inf: f64,
         density: f64,
     ) -> Result<Vec<VlmSolution>, VlmError> {
+        if self.wake == WakeModel::Freestream {
+            // The wake depends on α, so there is nothing to cache across angles.
+            return alphas_rad
+                .iter()
+                .map(|&a| self.solve(a, v_inf, density, &[]))
+                .collect();
+        }
         let prepared = self.prepare()?;
         alphas_rad
             .iter()
@@ -744,6 +963,7 @@ impl VlmModel {
             } else {
                 vloc = vloc + horseshoe_velocity(&ka, &kb, d, &mid, gamma[k]);
             }
+            vloc = vloc + self.image_horseshoe(&ka, &kb, d, &mid, gamma[k]);
         }
         vloc
     }
@@ -806,7 +1026,7 @@ impl VlmModel {
         let drag_dir = Vec3::new(c, R::zero(), s);
         let lift = force.dot(&lift_dir);
         let drag = force.dot(&drag_dir);
-        let q_s = R::half() * rho * v_inf * v_inf * R::from_f64(self.reference.area);
+        let q_s = R::half() * rho * v_inf * v_inf * R::from_f64(self.reference.area * self.beta);
         let q_sc = q_s * R::from_f64(self.reference.chord);
         let q_sb = q_s * R::from_f64(self.reference.span);
         (
@@ -830,7 +1050,7 @@ impl VlmModel {
         let elements = self.lattice.elements();
         let (s, c) = alpha_rad.sin_cos();
         let lift_dir = Vec3::new(-s, 0.0, c);
-        let q = 0.5 * density * v_inf * v_inf;
+        let q = 0.5 * density * v_inf * v_inf * self.beta;
         let mut force_per_strip: Vec<f64> = vec![0.0; self.lattice.strip_count()];
         let mut ref_len_per_strip: Vec<f64> = vec![0.0; self.lattice.strip_count()];
         for (j, ej) in elements.iter().enumerate() {

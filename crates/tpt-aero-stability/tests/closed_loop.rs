@@ -216,3 +216,33 @@ fn pitch_attitude_hold_tracks_a_step_command() {
         .fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(*x), b.max(*x)));
     assert!(hi - lo < 0.5 * theta_cmd, "tail range {}", hi - lo);
 }
+
+#[test]
+fn pitch_hold_with_integrator_removes_the_steady_error() {
+    // Proportional-only hold: the airspeed bleeds off and θ settles short of
+    // the command. An integral of the θ error (autotrim) closes that gap.
+    let open = longitudinal_system();
+    let (kth, kq) = (2.0, 0.3);
+    let theta_cmd = 5.0_f64.to_radians();
+    let dt = 0.005;
+    let steps = 12_000; // 60 s
+
+    let proportional = open.with_feedback(0, &[0.0, 0.0, -kq, -kth]);
+    let p_hist = simulate(&proportional, [0.0; 4], dt, steps, |_| [0.0, theta_cmd]);
+    let p_error = (p_hist[steps].x[3] - theta_cmd).abs();
+
+    let ki = 0.4;
+    let aug = open.with_integrator([0.0, 0.0, 0.0, 1.0], 1);
+    // u = kq q + kth θ + ki z, with z' = θ − θ_cmd; the reference is input 1.
+    let closed = aug.with_feedback(0, &[0.0, 0.0, -kq, -kth, -ki]);
+    let hist = simulate(&closed, [0.0; 5], dt, steps, |_| [0.0, theta_cmd]);
+    assert_eq!(hist.len(), steps + 1, "the augmented loop must not diverge");
+    let final_theta = hist.last().unwrap().x[3];
+    let i_error = (final_theta - theta_cmd).abs();
+
+    assert!(i_error < 0.005 * theta_cmd, "integral error {i_error} rad");
+    assert!(
+        i_error < 0.1 * p_error,
+        "integral {i_error} vs proportional {p_error}"
+    );
+}

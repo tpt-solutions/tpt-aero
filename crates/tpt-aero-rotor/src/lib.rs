@@ -35,10 +35,12 @@
 extern crate alloc;
 
 pub mod bemt;
+pub mod wake_field;
 pub mod blade;
 pub mod inflow;
 pub mod loss;
 pub mod maps;
+pub mod slipstream;
 
 pub use bemt::{
     solve_induction_bounded, BemtSolution, BemtSolver, OperatingCondition, RotorLoads,
@@ -48,3 +50,5 @@ pub use blade::{BladeSection, RotorError, RotorGeometry, SectionModel};
 pub use inflow::{DynamicInflow, SkewedWake};
 pub use loss::{HubLoss, TipLoss};
 pub use maps::{performance_map, MapPoint};
+pub use slipstream::Slipstream;
+pub use wake_field::{CylinderWake, SlipstreamModel};

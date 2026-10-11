@@ -16,6 +16,7 @@
 //! * [`airfoil`] — NACA 4-digit generation and coordinate transforms.
 //! * [`geometry`] — `Vec3`, lifting-line panels, quad surface panels, wing
 //!   planforms with refinement.
+//! * [`viscous`] — flat-plate skin friction, form factors and a C_D0 build-up.
 //! * [`num`] — the [`Real`] abstraction that lets solver kernels run on `f64`
 //!   or on forward-mode dual numbers (exact first derivatives).
 //!
@@ -38,9 +39,11 @@ extern crate alloc;
 pub mod airfoil;
 pub mod coefficients;
 pub mod geometry;
+pub mod linalg;
 pub mod num;
 pub mod polar;
 pub mod quantities;
+pub mod viscous;
 
 pub use airfoil::{naca4, naca4_closed, AirfoilCoordinates, AirfoilError};
 pub use coefficients::{
@@ -50,6 +53,7 @@ pub use coefficients::{
 pub use geometry::{
     GeometryError, LiftingLinePanel, SurfacePanel, Vec3, WingPlanform, WingSection,
 };
+pub use linalg::{cholesky_spd, lu_solve, lu_solve_generic, LuFactors, SolveError};
 pub use num::Real;
 pub use polar::{AirfoilPolar, PolarError, PolarSet, StallModel};
 pub use quantities::{

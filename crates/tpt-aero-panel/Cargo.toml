@@ -15,15 +15,22 @@ categories = ["science", "aerospace", "no-std"]
 
 [dependencies]
 tpt-aero-core = { workspace = true }
-tpt-aero-vlm = { workspace = true }
 tpt-math-numeric = { workspace = true }
 tpt-math-linalg-dense = { workspace = true }
 
 [features]
 default = ["std"]
-std = ["tpt-aero-core/std", "tpt-aero-vlm/std", "tpt-math-numeric/std", "tpt-math-linalg-dense/std"]
-alloc = ["tpt-aero-core/alloc", "tpt-aero-vlm/alloc", "tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc"]
-libm = ["alloc", "tpt-aero-core/libm", "tpt-aero-vlm/libm", "tpt-math-numeric/libm"]
+std = ["tpt-aero-core/std", "tpt-math-numeric/std", "tpt-math-linalg-dense/std"]
+alloc = ["tpt-aero-core/alloc", "tpt-math-numeric/alloc", "tpt-math-linalg-dense/alloc"]
+libm = ["alloc", "tpt-aero-core/libm", "tpt-math-numeric/libm"]
+
+[dev-dependencies]
+# Dev-only; default features off keeps plotters/rayon out of the tree.
+criterion = { version = "0.5", default-features = false }
+
+[[bench]]
+name = "panel"
+harness = false
 
 [lints]
 workspace = true

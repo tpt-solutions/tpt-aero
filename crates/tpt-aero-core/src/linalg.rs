@@ -11,7 +11,7 @@
 
 use alloc::{vec, vec::Vec};
 
-use tpt_aero_core::Real;
+use crate::num::Real;
 use tpt_math_linalg_dense::{DMatrix, DVector};
 
 /// Errors from linear solves.
@@ -36,6 +36,8 @@ impl core::fmt::Display for SolveError {
         }
     }
 }
+
+impl core::error::Error for SolveError {}
 
 /// Solve `A x = b` on `f64` via the native partial-pivot LU in
 /// `tpt-math-linalg-dense`.

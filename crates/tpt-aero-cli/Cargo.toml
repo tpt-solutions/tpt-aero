@@ -15,6 +15,8 @@ categories = ["science", "aerospace", "command-line-utilities"]
 [[bin]]
 name = "tpt-aero"
 path = "src/main.rs"
+# Same name as the umbrella library; skip its rustdoc so both can be documented.
+doc = false
 
 [dependencies]
 tpt-aero = { workspace = true, features = ["serde"] }

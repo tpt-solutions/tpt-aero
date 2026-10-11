@@ -31,6 +31,8 @@ impl core::fmt::Display for LatticeError {
     }
 }
 
+impl core::error::Error for LatticeError {}
+
 /// Camber model applied to the lattice surface normals.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum CamberModel {
@@ -81,6 +83,17 @@ impl CamberModel {
             }
         }
     }
+}
+
+/// Spanwise distribution of the lattice strips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpanSpacing {
+    /// Equal strip widths (the default; matches [`Lattice::build`]).
+    #[default]
+    Uniform,
+    /// Cosine-clustered toward the tips: narrow strips where the loading
+    /// gradient is steepest. Opt-in, see [`WingPlanform::refine_cosine`].
+    Cosine,
 }
 
 /// One horseshoe element of the lattice (fixed `f64` geometry).
@@ -233,10 +246,27 @@ impl Lattice {
         n_chord: usize,
         camber: CamberModel,
     ) -> Result<Self, LatticeError> {
+        Self::build_spaced(planform, n_span, n_chord, camber, SpanSpacing::Uniform)
+    }
+
+    /// Like [`Lattice::build`], with an explicit spanwise strip distribution.
+    ///
+    /// # Errors
+    /// As [`Lattice::build`].
+    pub fn build_spaced(
+        planform: &WingPlanform,
+        n_span: usize,
+        n_chord: usize,
+        camber: CamberModel,
+        spacing: SpanSpacing,
+    ) -> Result<Self, LatticeError> {
         if n_span == 0 || n_chord == 0 {
             return Err(LatticeError::InvalidResolution);
         }
-        let refined = planform.refine(n_span + 1);
+        let refined = match spacing {
+            SpanSpacing::Uniform => planform.refine(n_span + 1),
+            SpanSpacing::Cosine => planform.refine_cosine(n_span + 1),
+        };
         let sections = refined.sections();
 
         let mut elements = Vec::with_capacity(n_span * n_chord);

@@ -50,7 +50,7 @@ jobs:
         run: cargo test -p tpt-aero --features serde --test serde
       - name: examples run to completion
         run: |
-          for e in wing_vlm propeller_sweep isa_table airfoil_cp stability_derivatives aircraft_stability gust_response control_design; do
+          for e in wing_vlm propeller_sweep isa_table airfoil_cp stability_derivatives aircraft_stability gust_response control_design propeller_flight; do
             cargo run --release -p tpt-aero --example "$e" > /dev/null
           done
       - name: CLI smoke test
@@ -60,6 +60,11 @@ jobs:
           test "$(wc -l < polar.csv)" -eq 9
           cargo run -q -p tpt-aero-cli -- derivatives wing.toml --alpha 4 | grep -q cl_beta
           cargo run -q -p tpt-aero-cli -- vtk wing.toml --alpha 4 --out lattice.vtk
+          cargo run -q -p tpt-aero-cli -- template rotor > rotor.toml
+          cargo run -q -p tpt-aero-cli -- rotor rotor.toml | grep -q thrust_n
+          cargo run -q -p tpt-aero-cli -- template aircraft > aircraft.toml
+          cargo run -q -p tpt-aero-cli -- trim aircraft.toml --speed 50 | grep -q elevator_deg
+          cargo run -q -p tpt-aero-cli -- trim aircraft.toml --speed 50 --bank 20 | grep -q load_factor
           grep -q "SCALARS gamma" lattice.vtk
 
   no_std:

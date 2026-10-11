@@ -198,3 +198,21 @@ fn control_derivatives_report_errors() {
         ControlError::Solve(VlmError::InvalidFlightCondition)
     );
 }
+
+#[test]
+fn rudder_yaw_moment_matches_fin_side_force_times_arm() {
+    // The rudder acts on the fin alone, so its yawing moment is the fin side
+    // force times the arm to the moment reference: C_nδr ≈ -C_Yδr · l_v / b.
+    // The arm is taken to the fin's quarter-chord (root chord 0.9 m at x = 3.8).
+    let m = aircraft();
+    let r = control_derivatives(&m, "rudder", 3.0_f64.to_radians(), 50.0, RHO).unwrap();
+    let reference = m.reference();
+    let arm = 3.8 + 0.9 / 4.0 - reference.moment_center.x;
+    let predicted = -r.cy * arm / reference.span;
+    let ratio = r.c_yaw / predicted;
+    assert!(
+        (ratio - 1.0).abs() < 0.05,
+        "C_nδr {} vs fin estimate {predicted}",
+        r.c_yaw
+    );
+}

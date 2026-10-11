@@ -2,7 +2,10 @@
 
 use std::process::ExitCode;
 
-use tpt_aero_cli::{isa_csv, run_derivatives, run_derivatives_json, run_vtk, run_wing, TEMPLATE};
+use tpt_aero_cli::{
+    isa_csv, rotor_text, run_derivatives, run_derivatives_json, run_rotor, run_trim, run_vtk,
+    run_wing, trim_text, TrimKind, AIRCRAFT_TEMPLATE, ROTOR_TEMPLATE, TEMPLATE,
+};
 
 const USAGE: &str = "tpt-aero - aerodynamics from the command line
 
@@ -10,7 +13,10 @@ USAGE:
     tpt-aero wing <case.toml> [--out <file.csv>]   run an alpha sweep (CSV to stdout by default)
     tpt-aero derivatives <case.toml> [--alpha <deg>] [--json]   stability derivatives (default alpha 2)
     tpt-aero vtk <case.toml> [--alpha <deg>] [--out <file.vtk>]   lattice + circulation for ParaView
-    tpt-aero template wing                         print a commented case file
+    tpt-aero rotor <rotor.toml> [--json]           one BEMT operating point (thrust, torque, power)
+    tpt-aero trim <aircraft.toml> --speed <m/s> [--altitude <m>] [--bank <deg>] [--json]
+                                                   level trim, or a coordinated turn with --bank
+    tpt-aero template <wing|rotor|aircraft>        print a commented case file
     tpt-aero isa <altitude_m>...                   ISA properties as CSV
     tpt-aero --help
 ";
@@ -37,8 +43,78 @@ fn run(args: &[String]) -> Result<(), String> {
                 print!("{TEMPLATE}");
                 Ok(())
             }
-            _ => Err("usage: tpt-aero template wing".into()),
+            Some("rotor") => {
+                print!("{ROTOR_TEMPLATE}");
+                Ok(())
+            }
+            Some("aircraft") => {
+                print!("{AIRCRAFT_TEMPLATE}");
+                Ok(())
+            }
+            _ => Err("usage: tpt-aero template <wing|rotor|aircraft>".into()),
         },
+        Some("rotor") => {
+            let path = args
+                .get(1)
+                .ok_or("usage: tpt-aero rotor <rotor.toml> [--json]")?;
+            let json = match args.get(2).map(String::as_str) {
+                None => false,
+                Some("--json") => true,
+                Some(other) => return Err(format!("unexpected argument: {other}")),
+            };
+            let text =
+                std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            let report = run_rotor(&text).map_err(|e| e.to_string())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+                );
+            } else {
+                print!("{}", rotor_text(&report));
+            }
+            Ok(())
+        }
+        Some("trim") => {
+            let path = args
+                .get(1)
+                .ok_or("usage: tpt-aero trim <aircraft.toml> --speed <m/s> [--altitude <m>] [--bank <deg>] [--json]")?;
+            let (mut speed, mut altitude, mut bank, mut json) = (None, 0.0, None, false);
+            let mut rest = args[2..].iter();
+            while let Some(flag) = rest.next() {
+                if flag == "--json" {
+                    json = true;
+                    continue;
+                }
+                let value = rest.next().ok_or(format!("{flag} needs a value"))?;
+                let number = value
+                    .parse::<f64>()
+                    .map_err(|_| format!("{flag} must be a number"))?;
+                match flag.as_str() {
+                    "--speed" => speed = Some(number),
+                    "--altitude" => altitude = number,
+                    "--bank" => bank = Some(number.to_radians()),
+                    other => return Err(format!("unexpected argument: {other}")),
+                }
+            }
+            let speed = speed.ok_or("trim needs --speed <m/s>")?;
+            let kind = match bank {
+                Some(bank_rad) => TrimKind::Turn { bank_rad },
+                None => TrimKind::Level,
+            };
+            let text =
+                std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+            let report = run_trim(&text, speed, altitude, kind).map_err(|e| e.to_string())?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+                );
+            } else {
+                print!("{}", trim_text(&report));
+            }
+            Ok(())
+        }
         Some("vtk") => {
             let path = args
                 .get(1)
