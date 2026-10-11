@@ -7,7 +7,7 @@ use tpt_aero::stability::trim::{trim_level_flight, TrimError, TrimRequest};
 use tpt_aero::stability::turn::{coordinated_turn_rate, trim_steady_turn, TurnRequest, G};
 use tpt_aero::vlm::{ControlSymmetry, Surface, VlmModel};
 
-use crate::{finite, positive, CliError};
+use crate::{check_mesh, finite, positive, CliError};
 
 /// A fully commented starting point for `tpt-aero trim`.
 pub const AIRCRAFT_TEMPLATE: &str = r#"# tpt-aero aircraft case. Run: tpt-aero trim aircraft.toml --speed 50 [--bank 20]
@@ -188,11 +188,7 @@ fn build_model(case: &AircraftCase) -> Result<VlmModel, CliError> {
         };
         let sweep = finite(&format!("{label}.sweep_le"), sp.sweep_le)?;
         let dihedral = finite(&format!("{label}.dihedral_deg"), sp.dihedral_deg)?.to_radians();
-        if sp.n_span == 0 || sp.n_chord == 0 {
-            return Err(CliError::Invalid(format!(
-                "{label}: n_span and n_chord must be ≥ 1"
-            )));
-        }
+        check_mesh(&label, sp.n_span, sp.n_chord)?;
         let planform = WingPlanform::tapered(span, root, tip, sweep, dihedral);
         let mut surface = match sp.kind.as_str() {
             "horizontal" => Surface::horizontal(planform, sp.n_span, sp.n_chord),
@@ -297,6 +293,13 @@ pub fn run_trim(
         }
         TrimKind::Turn { bank_rad } => {
             let bank = finite("bank", bank_rad)?;
+            // tan(bank) diverges at 90°, so a coordinated turn needs |bank| < 90°.
+            if bank.abs() >= core::f64::consts::FRAC_PI_2 {
+                return Err(CliError::Invalid(format!(
+                    "--bank must satisfy |bank| < 90 deg (got {:.2} deg)",
+                    bank.to_degrees()
+                )));
+            }
             let psi_dot = coordinated_turn_rate(speed, bank);
             let t = trim_steady_turn(
                 &model,
@@ -334,7 +337,7 @@ pub fn run_trim(
 fn trim_failed(e: TrimError) -> CliError {
     match e {
         TrimError::NoSuchControl => CliError::Invalid(
-            "the aircraft case lacks a control the trim needs (level flight: elevator;              turns: elevator, aileron and rudder)"
+            "the aircraft case lacks a control the trim needs (level flight: elevator; turns: elevator, aileron and rudder)"
                 .into(),
         ),
         other => CliError::Solve(other.to_string()),

@@ -13,6 +13,36 @@ use tpt_aero::stability::lateral::lateral_fd;
 mod aircraft;
 mod rotor;
 
+/// Largest accepted count of spanwise or chordwise panels (per surface, and
+/// spanwise stations for the rotor).
+pub(crate) const MAX_MESH_COUNT: usize = 500;
+
+/// Largest accepted panel total per surface. The AIC matrix is dense, so its
+/// memory and solve cost grow with the square and cube of this count.
+pub(crate) const MAX_PANELS: usize = 2500;
+
+/// Validate a spanwise/chordwise panel mesh: both counts ≥ 1, each at most
+/// [`MAX_MESH_COUNT`], and their product at most [`MAX_PANELS`].
+pub(crate) fn check_mesh(label: &str, n_span: usize, n_chord: usize) -> Result<(), CliError> {
+    if n_span == 0 || n_chord == 0 {
+        return Err(CliError::Invalid(format!(
+            "{label}: n_span and n_chord must be >= 1"
+        )));
+    }
+    if n_span > MAX_MESH_COUNT || n_chord > MAX_MESH_COUNT {
+        return Err(CliError::Invalid(format!(
+            "{label}: n_span and n_chord must be <= {MAX_MESH_COUNT}"
+        )));
+    }
+    if n_span * n_chord > MAX_PANELS {
+        return Err(CliError::Invalid(format!(
+            "{label}: n_span × n_chord must be <= {MAX_PANELS} (got {})",
+            n_span * n_chord
+        )));
+    }
+    Ok(())
+}
+
 pub use aircraft::{run_trim, trim_text, TrimKind, TrimReport, AIRCRAFT_TEMPLATE};
 pub use rotor::{rotor_text, run_rotor, RotorReport, ROTOR_TEMPLATE};
 
@@ -182,9 +212,7 @@ fn build(case_toml: &str) -> Result<Built, CliError> {
             CamberModel::Naca4 { m: c.m, p: c.p }
         }
     };
-    if case.mesh.n_span == 0 || case.mesh.n_chord == 0 {
-        return Err(CliError::Invalid("mesh counts must be >= 1".into()));
-    }
+    check_mesh("mesh", case.mesh.n_span, case.mesh.n_chord)?;
 
     let speed = positive("conditions.speed", case.conditions.speed)?;
     let density = match (case.conditions.density, case.conditions.altitude) {
@@ -305,7 +333,23 @@ fn derivative_sets(
         ..
     } = build(case_toml)?;
     let alpha = finite("alpha", alpha_deg)?.to_radians();
-    let long = longitudinal_fd(&model, alpha, speed, density, 1.0e-4);
+    let long = longitudinal_fd(&model, alpha, speed, density, 1.0e-4)
+        .map_err(|e| CliError::Solve(e.to_string()))?;
+    let finite_long = [
+        long.cl_alpha,
+        long.cm_alpha,
+        long.cl_q,
+        long.cm_q,
+        long.cl_delta,
+        long.cm_delta,
+    ]
+    .iter()
+    .all(|v| v.is_finite());
+    if !finite_long {
+        return Err(CliError::Solve(
+            "longitudinal derivatives are not finite at this flight condition".into(),
+        ));
+    }
     let lat =
         lateral_fd(&model, alpha, speed, density).map_err(|e| CliError::Solve(e.to_string()))?;
     Ok((speed, density, long, lat))

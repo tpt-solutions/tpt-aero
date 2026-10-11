@@ -116,7 +116,7 @@ pub fn solve_source_panels(
         tangent.push((dx / l, dy / l));
     }
 
-    // Influence coefficients by 8-point Gauss–Legendre quadrature of the
+    // Influence coefficients by 4-point Gauss–Legendre quadrature of the
     // point-source kernel v = (σ l w / 2π)·R/|R|² along each panel — immune
     // to the branch-cut pitfalls of the closed-form angle expressions. The
     // self-panel normal influence is the analytic ½ (Hess–Smith).

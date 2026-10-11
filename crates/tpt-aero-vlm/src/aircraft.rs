@@ -9,7 +9,7 @@
 
 use alloc::{string::String, vec::Vec};
 
-use tpt_aero_core::{Vec3, WingPlanform, WingSection};
+use tpt_aero_core::{GeometryError, Vec3, WingPlanform, WingSection};
 
 use crate::lattice::{CamberModel, Lattice, LatticeError};
 use crate::solver::{ReferenceGeometry, VlmError, VlmModel};
@@ -149,8 +149,14 @@ impl Surface {
     /// Set the incidence (rad, nose-up positive) by adding it to every
     /// section's twist; a horizontal tail with negative incidence carries
     /// download.
-    #[must_use]
-    pub fn with_incidence(mut self, incidence_rad: f64) -> Self {
+    ///
+    /// # Errors
+    /// [`tpt_aero_core::GeometryError`] if the shifted sections no longer form
+    /// a valid planform (for example, a non-finite incidence).
+    pub fn with_incidence(mut self, incidence_rad: f64) -> Result<Self, GeometryError> {
+        if !incidence_rad.is_finite() {
+            return Err(GeometryError::InvalidPlanform);
+        }
         let sections: Vec<WingSection> = self
             .planform
             .sections()
@@ -160,11 +166,9 @@ impl Surface {
                 ..*s
             })
             .collect();
-        // The sections came from a valid planform and keep their y order.
-        if let Ok(p) = WingPlanform::from_sections(sections) {
-            self.planform = p;
-        }
-        self
+        // Only the twist changes, so y order and chords stay valid.
+        self.planform = WingPlanform::from_sections(sections)?;
+        Ok(self)
     }
 }
 

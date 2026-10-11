@@ -730,6 +730,18 @@ impl VlmModel {
         rho: R,
         twists: &[R],
     ) -> Result<SolveCore<R>, VlmError> {
+        // Same flight-condition contract as `solve`, checked on the primal
+        // value so the generic (dual) path cannot silently return a zero-speed
+        // or non-finite solution.
+        let (a_val, v_val, rho_val) = (alpha_rad.to_f64(), v_inf.to_f64(), rho.to_f64());
+        if !(a_val.is_finite()
+            && v_val.is_finite()
+            && v_val > 0.0
+            && rho_val.is_finite()
+            && rho_val > 0.0)
+        {
+            return Err(VlmError::InvalidFlightCondition);
+        }
         let elements = self.lattice.elements();
         let n = elements.len();
         if !twists.is_empty() && twists.len() != n {

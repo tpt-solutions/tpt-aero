@@ -130,7 +130,7 @@ fn main() {
         cd: trim.cdi + 0.03,
         cd_alpha: drag_alpha_fd(&model, trim.alpha_rad, v, rho).expect("solvable"),
     };
-    let d = longitudinal_fd(&model, trim.alpha_rad, v, rho, 1e-4);
+    let d = longitudinal_fd(&model, trim.alpha_rad, v, rho, 1e-4).expect("solve");
     let elevator =
         control_derivatives(&model, "elevator", trim.alpha_rad, v, rho).expect("control exists");
     let plant = FullLongitudinalPlant::from_derivatives(&d, &long_params).expect("valid plant");

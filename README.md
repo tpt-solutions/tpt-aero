@@ -23,7 +23,7 @@ let trim = trim_level_flight(&aircraft, &TrimRequest {
     weight_n: 600.0 * 9.80665, v_inf: 50.0, density: 1.225,
     elevator: "elevator", cd0: 0.03,
 })?;
-let d = longitudinal_fd(&aircraft, trim.alpha_rad, 50.0, 1.225, 1e-4);
+let d = longitudinal_fd(&aircraft, trim.alpha_rad, 50.0, 1.225, 1e-4).expect("solve");
 println!("alpha {:.1} deg, elevator {:.1} deg, Cm_alpha {:.2}",
     trim.alpha_rad.to_degrees(), trim.elevator_rad.to_degrees(), d.cm_alpha);
 ```

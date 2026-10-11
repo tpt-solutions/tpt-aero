@@ -219,3 +219,31 @@ fn trim_rejects_bad_input() {
         Err(CliError::Invalid(_))
     ));
 }
+
+#[test]
+fn turn_rejects_bank_at_or_past_90_degrees() {
+    // tan(bank) diverges at 90°: reject it with a message rather than
+    // producing an infinite turn rate.
+    for bank in [std::f64::consts::FRAC_PI_2, 2.0, -std::f64::consts::PI] {
+        let r = run_trim(
+            AIRCRAFT_TEMPLATE,
+            50.0,
+            0.0,
+            TrimKind::Turn { bank_rad: bank },
+        );
+        match r {
+            Err(CliError::Invalid(msg)) => assert!(msg.contains("90 deg"), "{msg}"),
+            other => panic!("bank {bank}: expected Invalid, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn mesh_size_is_capped() {
+    let huge = TEMPLATE.replace("n_span = 24", "n_span = 100000");
+    assert!(matches!(run_wing(&huge), Err(CliError::Invalid(_))));
+    let dense = TEMPLATE
+        .replace("n_span = 24", "n_span = 200")
+        .replace("n_chord = 4", "n_chord = 200");
+    assert!(matches!(run_wing(&dense), Err(CliError::Invalid(_))));
+}

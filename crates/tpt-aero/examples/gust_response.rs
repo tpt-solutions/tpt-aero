@@ -47,7 +47,7 @@ fn main() {
         },
     )
     .expect("trims");
-    let derivs = longitudinal_fd(&model, trim.alpha_rad, v, rho, 1e-4);
+    let derivs = longitudinal_fd(&model, trim.alpha_rad, v, rho, 1e-4).expect("solve");
     let elevator =
         control_derivatives(&model, "elevator", trim.alpha_rad, v, rho).expect("control exists");
     let r = model.reference();

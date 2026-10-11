@@ -51,7 +51,7 @@ fn main() {
     }
 
     let model = build(0.25);
-    let d = longitudinal_fd(&model, alpha, v, rho, 1e-4);
+    let d = longitudinal_fd(&model, alpha, v, rho, 1e-4).expect("solve");
     let c = wing.mac();
     let x_np = 0.25 * c - d.cm_alpha / d.cl_alpha * c;
     println!("=== Wing + tailplane + fin, V = {v} m/s, alpha = 3 deg ===\n");
@@ -83,7 +83,7 @@ fn main() {
     );
     for cg in [0.15, 0.25, 0.35, 0.45, 0.55] {
         let m = build(cg);
-        let dd = longitudinal_fd(&m, alpha, v, rho, 1e-4);
+        let dd = longitudinal_fd(&m, alpha, v, rho, 1e-4).expect("solve");
         let margin = -dd.cm_alpha / dd.cl_alpha; // fraction of MAC ahead of the NP
         let params = PlantParameters {
             v_inf: v,
@@ -148,7 +148,7 @@ Level-flight trim (600 kg, CG at 25 % MAC, CD0 = 0.03):"
         cd0: 0.03,
     };
     let t = trim_level_flight(&trim_model, &req).expect("trims");
-    let dt = longitudinal_fd(&trim_model, t.alpha_rad, v, rho, 1e-4);
+    let dt = longitudinal_fd(&trim_model, t.alpha_rad, v, rho, 1e-4).expect("solve");
     let long_params = FullLongitudinalParameters {
         v_inf: v,
         chord: c,

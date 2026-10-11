@@ -26,7 +26,7 @@ fn main() {
                 span: wing.span(),
                 moment_center: Vec3::new(x_ref * wing.mac(), 0.0, 0.0),
             });
-        let d = longitudinal_fd(&model, 2.0_f64.to_radians(), v, rho, 1e-4);
+        let d = longitudinal_fd(&model, 2.0_f64.to_radians(), v, rho, 1e-4).expect("solve");
         let params = PlantParameters {
             v_inf: v,
             chord: wing.mac(),

@@ -75,7 +75,7 @@ fn t_tail(n: (usize, usize, usize)) -> VlmModel {
 fn rectangular_wing_lift_and_induced_drag_match_avl() {
     // AVL 3.52, wing_rectangular.avl, 20 x 4 panels: CLa 4.6279, CDind 0.0010297.
     let m = rectangular_wing();
-    let d = longitudinal_fd(&m, ALPHA, V, RHO, 1e-4);
+    let d = longitudinal_fd(&m, ALPHA, V, RHO, 1e-4).expect("solve");
     let s = m.solve(ALPHA, V, RHO, &[]).expect("solve");
     assert_rel("wing C_La", d.cl_alpha, 4.627_851, 0.05);
     assert_rel("wing C_Di", s.cdi, 0.001_029_7, 0.03);
@@ -102,7 +102,7 @@ fn refined_t_tail_derivatives_match_avl() {
     // Clp -0.544663, Clr 0.065340, Cnr -0.067860. Cmα is about the wing
     // quarter chord, the model's reference point.
     let m = t_tail((40, 20, 24));
-    let d = longitudinal_fd(&m, ALPHA, V, RHO, 1e-4);
+    let d = longitudinal_fd(&m, ALPHA, V, RHO, 1e-4).expect("solve");
     let l = lateral_fd(&m, ALPHA, V, RHO).expect("lateral");
     assert_rel("T-tail C_La", d.cl_alpha, 5.302_540, 0.03);
     assert_rel("T-tail C_ma", d.cm_alpha, -2.126_698, 0.05);

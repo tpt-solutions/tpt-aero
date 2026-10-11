@@ -53,7 +53,7 @@
 //! .expect("trims");
 //! assert!((1.0..8.0).contains(&trim.alpha_rad.to_degrees()));
 //!
-//! let d = longitudinal_fd(&aircraft, trim.alpha_rad, 50.0, 1.225, 1e-4);
+//! let d = longitudinal_fd(&aircraft, trim.alpha_rad, 50.0, 1.225, 1e-4).expect("solve");
 //! assert!(d.cm_alpha < 0.0, "statically stable");
 //! ```
 

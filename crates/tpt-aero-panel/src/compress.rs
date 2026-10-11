@@ -58,9 +58,10 @@ pub const fn is_applicable(mach: f64) -> bool {
 ///
 /// `Cp_c = Cp_i / (β + (M²/(2(1+β)))·Cp_i)`
 ///
-/// Accounts for the finite thickness effect on the disturbance level; it
-/// predicts weaker suction amplification than Prandtl–Glauert for negative
-/// Cp and stronger compression for positive Cp.
+/// Accounts for the finite thickness effect on the disturbance level. For
+/// negative Cp the denominator falls below `β`, so suction is amplified more
+/// than Prandtl–Glauert predicts; for positive Cp it rises above `β`, so the
+/// compression is weaker.
 ///
 /// # Errors
 /// [`CompressibilityError::MachOutOfRange`] unless `0 ≤ M < 1`;

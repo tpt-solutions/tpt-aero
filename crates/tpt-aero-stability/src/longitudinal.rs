@@ -16,7 +16,7 @@ use alloc::{vec, vec::Vec};
 
 #[allow(unused_imports)]
 use tpt_aero_core::Real as _;
-use tpt_aero_vlm::VlmModel;
+use tpt_aero_vlm::{VlmError, VlmModel};
 
 /// A set of extracted stability derivatives (1/rad units unless noted).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -37,35 +37,33 @@ pub struct LongitudinalDerivatives {
     pub cm_delta: f64,
 }
 
-/// A small central-difference helper.
-fn central_difference(f: impl Fn(f64) -> f64, x0: f64, eps: f64) -> f64 {
-    (f(x0 + eps) - f(x0 - eps)) / (2.0 * eps)
+/// A small central-difference helper; any failed solve propagates.
+fn central_difference(
+    f: impl Fn(f64) -> Result<f64, VlmError>,
+    x0: f64,
+    eps: f64,
+) -> Result<f64, VlmError> {
+    Ok((f(x0 + eps)? - f(x0 - eps)?) / (2.0 * eps))
 }
 
 /// Extract longitudinal derivatives from a VLM model by central finite
 /// differences at the given trim point.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns the first [`VlmError`] raised by a perturbed solve (invalid flight
+/// condition, singular AIC, ...). Failed solves are never turned into NaN.
 pub fn longitudinal_fd(
     model: &VlmModel,
     alpha_rad: f64,
     v_inf: f64,
     density: f64,
     eps_alpha: f64,
-) -> LongitudinalDerivatives {
-    let cl_at = |a: f64| {
-        model
-            .solve(a, v_inf, density, &[])
-            .map(|s| s.cl)
-            .unwrap_or(f64::NAN)
-    };
-    let cm_at = |a: f64| {
-        model
-            .solve(a, v_inf, density, &[])
-            .map(|s| s.cm)
-            .unwrap_or(f64::NAN)
-    };
-    let cl_alpha = central_difference(cl_at, alpha_rad, eps_alpha);
-    let cm_alpha = central_difference(cm_at, alpha_rad, eps_alpha);
+) -> Result<LongitudinalDerivatives, VlmError> {
+    let cl_at = |a: f64| model.solve(a, v_inf, density, &[]).map(|s| s.cl);
+    let cm_at = |a: f64| model.solve(a, v_inf, density, &[]).map(|s| s.cm);
+    let cl_alpha = central_difference(cl_at, alpha_rad, eps_alpha)?;
+    let cm_alpha = central_difference(cm_at, alpha_rad, eps_alpha)?;
 
     // Pitch rate: local incidence change −q̂·(x_i − x_ref)·2/c_ref... with
     // the normalized rate q̂ = q·c/2V, the incidence change per unit q̂ is
@@ -83,60 +81,55 @@ pub fn longitudinal_fd(
     };
     let cl_q_at = |qhat: f64| {
         let t = pitch_twists(qhat);
-        model
-            .solve(alpha_rad, v_inf, density, &t)
-            .map(|s| s.cl)
-            .unwrap_or(f64::NAN)
+        model.solve(alpha_rad, v_inf, density, &t).map(|s| s.cl)
     };
     let cm_q_at = |qhat: f64| {
         let t = pitch_twists(qhat);
-        model
-            .solve(alpha_rad, v_inf, density, &t)
-            .map(|s| s.cm)
-            .unwrap_or(f64::NAN)
+        model.solve(alpha_rad, v_inf, density, &t).map(|s| s.cm)
     };
-    let cl_q = central_difference(cl_q_at, 0.0, 1.0e-3);
-    let cm_q = central_difference(cm_q_at, 0.0, 1.0e-3);
+    let cl_q = central_difference(cl_q_at, 0.0, 1.0e-3)?;
+    let cm_q = central_difference(cm_q_at, 0.0, 1.0e-3)?;
 
     // Flap effectiveness: uniform incidence increment (full-chord camber
     // flap: δ_e shifts every element's zero-lift line by δ_e).
     let cl_d_at = |d: f64| {
         let t = vec![d; model.lattice().len()];
-        model
-            .solve(alpha_rad, v_inf, density, &t)
-            .map(|s| s.cl)
-            .unwrap_or(f64::NAN)
+        model.solve(alpha_rad, v_inf, density, &t).map(|s| s.cl)
     };
     let cm_d_at = |d: f64| {
         let t = vec![d; model.lattice().len()];
-        model
-            .solve(alpha_rad, v_inf, density, &t)
-            .map(|s| s.cm)
-            .unwrap_or(f64::NAN)
+        model.solve(alpha_rad, v_inf, density, &t).map(|s| s.cm)
     };
-    let cl_delta = central_difference(cl_d_at, 0.0, 1.0e-3);
-    let cm_delta = central_difference(cm_d_at, 0.0, 1.0e-3);
+    let cl_delta = central_difference(cl_d_at, 0.0, 1.0e-3)?;
+    let cm_delta = central_difference(cm_d_at, 0.0, 1.0e-3)?;
 
-    LongitudinalDerivatives {
+    Ok(LongitudinalDerivatives {
         cl_alpha,
         cm_alpha,
         cl_q,
         cm_q,
         cl_delta,
         cm_delta,
-    }
+    })
 }
 
 /// Extract `C_{Lα}` exactly (to machine precision) with the forward-mode
 /// dual path of the VLM — differentiable assembly, no step-size tuning.
-#[must_use]
-pub fn cl_alpha_dual(model: &VlmModel, alpha_rad: f64, v_inf: f64, density: f64) -> f64 {
+///
+/// # Errors
+///
+/// Returns the [`VlmError`] from the dual-number solve.
+pub fn cl_alpha_dual(
+    model: &VlmModel,
+    alpha_rad: f64,
+    v_inf: f64,
+    density: f64,
+) -> Result<f64, VlmError> {
     use tpt_math_autodiff_fwd::Dual;
     let a = Dual::<f64>::variable(alpha_rad, 0);
     model
         .solve_generic::<Dual<f64, 1>>(a, Dual::constant(v_inf), Dual::constant(density), &[])
         .map(|f| f.cl.du(0))
-        .unwrap_or(f64::NAN)
 }
 
 /// Classic analytical estimates for a rectangular (or high-aspect tapered)
@@ -174,8 +167,8 @@ mod tests {
         let wing = WingPlanform::rectangular(10.0, 1.0);
         let model = VlmModel::from_planform(&wing, 20, 4, CamberModel::None).expect("valid");
         let alpha = 2.0_f64.to_radians();
-        let fd = longitudinal_fd(&model, alpha, 50.0, 1.225, 1.0e-4);
-        let dual = cl_alpha_dual(&model, alpha, 50.0, 1.225);
+        let fd = longitudinal_fd(&model, alpha, 50.0, 1.225, 1.0e-4).expect("solve");
+        let dual = cl_alpha_dual(&model, alpha, 50.0, 1.225).expect("solve");
         assert!(
             (fd.cl_alpha - dual).abs() < 1e-3,
             "fd {} vs dual {}",
@@ -199,16 +192,27 @@ mod tests {
         // C_mq must be negative (pitch damping) and C_Lq positive.
         let wing = WingPlanform::rectangular(10.0, 1.0);
         let model = VlmModel::from_planform(&wing, 16, 4, CamberModel::None).expect("valid");
-        let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4);
+        let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4).expect("solve");
         assert!(d.cm_q < 0.0, "C_mq = {}", d.cm_q);
         assert!(d.cl_q > 0.0, "C_Lq = {}", d.cl_q);
+    }
+
+    #[test]
+    fn failed_solve_is_an_error_not_nan() {
+        // Zero airspeed is an invalid flight condition: the derivative
+        // extraction must report it instead of returning NaN values.
+        let wing = WingPlanform::rectangular(10.0, 1.0);
+        let model = VlmModel::from_planform(&wing, 8, 2, CamberModel::None).expect("valid");
+        let r = longitudinal_fd(&model, 2.0_f64.to_radians(), 0.0, 1.225, 1e-4);
+        assert!(matches!(r, Err(VlmError::InvalidFlightCondition)), "{r:?}");
+        assert!(cl_alpha_dual(&model, 0.0, 0.0, 1.225).is_err());
     }
 
     #[test]
     fn flap_effectiveness_sign_and_scale() {
         let wing = WingPlanform::rectangular(10.0, 1.0);
         let model = VlmModel::from_planform(&wing, 16, 4, CamberModel::None).expect("valid");
-        let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4);
+        let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4).expect("solve");
         // A full-chord camber flap shifts every element's zero-lift line:
         // its effectiveness equals the wing lift-curve slope.
         assert!(

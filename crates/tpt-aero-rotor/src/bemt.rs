@@ -192,7 +192,7 @@ impl BemtSolver {
             let w2 = lambda_tot * lambda_tot + x * x;
             let loss = self.loss_factor(x, phi, lambda_tot);
 
-            let dct_dx = x * sigma_r * w2 * (cl * phi.cos() + cd * phi.sin());
+            let dct_dx = x * sigma_r * w2 * (cl * phi.cos() - cd * phi.sin());
             let dcq_dx = x * x * sigma_r * w2 * (cl * phi.sin() + cd * phi.cos());
             let dct_dx_momentum = 4.0 * x * lambda_tot * lambda_i * loss;
 
@@ -383,7 +383,7 @@ fn solve_induction_counted(
             return None;
         }
         let w2 = lambda_tot * lambda_tot + x * x;
-        let element = x * sigma_r * w2 * (cl * phi.cos() + cd * phi.sin());
+        let element = x * sigma_r * w2 * (cl * phi.cos() - cd * phi.sin());
         let loss = loss_factor(phi, lambda_tot).clamp(0.01, 1.0);
         Some(element - 4.0 * x * lambda_tot * lambda_i * loss)
     };

@@ -93,7 +93,7 @@ fn longitudinal_system() -> StateSpace<4, 2> {
         cd: t.cdi + 0.03,
         cd_alpha: drag_alpha_fd(&m, t.alpha_rad, V, RHO).unwrap(),
     };
-    let d = longitudinal_fd(&m, t.alpha_rad, V, RHO, 1e-4);
+    let d = longitudinal_fd(&m, t.alpha_rad, V, RHO, 1e-4).expect("solve");
     let plant = FullLongitudinalPlant::from_derivatives(&d, &p).unwrap();
     plant.state_space(
         &p,

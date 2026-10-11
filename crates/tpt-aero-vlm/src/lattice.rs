@@ -18,6 +18,9 @@ pub enum LatticeError {
     InvalidResolution,
     /// Planform validation failed.
     InvalidPlanform,
+    /// NACA camber outside its domain: `m` must be finite, and when it is
+    /// non-zero `p` must lie strictly between 0 and 1 (`p = 1` divides by zero).
+    InvalidCamber,
 }
 
 impl core::fmt::Display for LatticeError {
@@ -27,6 +30,9 @@ impl core::fmt::Display for LatticeError {
                 write!(f, "need at least 1 spanwise and 1 chordwise panel")
             }
             LatticeError::InvalidPlanform => write!(f, "invalid wing planform"),
+            LatticeError::InvalidCamber => {
+                write!(f, "NACA camber needs finite m and 0 < p < 1 when m != 0")
+            }
         }
     }
 }
@@ -262,6 +268,12 @@ impl Lattice {
     ) -> Result<Self, LatticeError> {
         if n_span == 0 || n_chord == 0 {
             return Err(LatticeError::InvalidResolution);
+        }
+        if let CamberModel::Naca4 { m, p } = camber {
+            let p_ok = m == 0.0 || (p > 0.0 && p < 1.0);
+            if !(m.is_finite() && p.is_finite() && p_ok) {
+                return Err(LatticeError::InvalidCamber);
+            }
         }
         let refined = match spacing {
             SpanSpacing::Uniform => planform.refine(n_span + 1),

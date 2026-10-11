@@ -181,3 +181,92 @@ Open:
 - Note: repeated `cargo publish --workspace --dry-run` runs reuse an unpacked copy of the packaged crates in Cargo's registry cache (a `-<hash>` directory under `registry/src`, named after the temporary registry). After changing a crate without bumping its version, delete that directory first or verification builds against stale sources (this produced a false CLI failure once).
 - [ ] Tag v0.1.0 and publish (needs a decision: bump to 0.1.0 final changelog entry, push, confirm GitHub CI is green first)
 
+## Platform review (2026-10-11)
+
+Source: three read-only audits of all crates. Items marked (confirmed) were spot-checked in the code; the rest are auditor-reported and need a failing test before the fix.
+
+### 1. Bugs (each fix lands with a regression test)
+- [x] Panel `slender.rs`: Munk lift was `rho*V*alpha*dS/dx`, now `rho*V^2*alpha*dS/dx` (confirmed); test and docs corrected
+- [x] Rotor `bemt.rs`: thrust element used `cl*cos(phi) + cd*sin(phi)`, now `- cd*sin(phi)` at both sites (confirmed). Still to add: a high-advance-ratio test against the momentum limit
+- [x] CLI `aircraft.rs`: garbled run of spaces in the missing-control error (confirmed)
+- [x] Stability `longitudinal.rs`: seven `unwrap_or(f64::NAN)` sites turn failed solves into NaN; now return `Result<_, VlmError>` (`longitudinal_fd`, `cl_alpha_dual`), and CLI `derivatives` rejects non-finite output (test `failed_solve_is_an_error_not_nan`)
+- [x] CLI `trim --bank`: check `|bank| < 90 deg` before `coordinated_turn_rate`; clear message (test `turn_rejects_bank_at_or_past_90_degrees`)
+- [ ] CLI control geometry: validate inboard < outboard, within span, no duplicate names, and that the control covers at least one element (now a misleading `Singular`); warn on hinge quantisation to chord-panel boundaries
+- [x] CLI mesh-size cap on `n_span`, `n_chord`, `stations` (each ≤ 500, panel product ≤ 2500 per surface; test `mesh_size_is_capped`)
+- [ ] 6-DOF: guard gimbal lock near theta = +-90 deg; return partial history on error like the linear sim; check `ixx*izz > ixz^2` in `Aero::new`; invert the inertia tensor once; cap `steps` allocation
+- [ ] 6-DOF: AIC is refactored whenever `Controls` differs bitwise, up to 4 LU factorisations per RK4 step; quantise or linearise the control effect
+- [ ] 6-DOF: thrust is forced along the airspeed vector, not the body x-axis; document or add a body-fixed thrust option; flag alpha/beta outside the linear-VLM envelope
+- [ ] VLM `solve_generic` input validation: done (primal check of alpha, speed, density in `solve_core`). Still open: `solve_state` at |beta| = 90 deg normalises a zero vector; check reference area, chord and span
+- [ ] VLM `from_planform_compressible`: `with_reference` double-counts beta (beta^2 S); add `from_surfaces_compressible`
+- [ ] VLM `from_lattice`: span counts only the first surface, so chord = area/span is wrong for multi-surface lattices
+- [ ] VLM/core `refine`: uniform refinement drops interior section nodes (kinks fall inside a strip, area differs from `planform.area()`)
+- [x] VLM `with_incidence` silently ignores a `from_sections` failure (now returns `Result`; rejects non-finite incidence)
+- [ ] VLM: no vortex core, absolute 1e-12 singularity guards; coplanar tail-in-wing-plane conditioning
+- [ ] VLM: `solve()` and `prepare().solve()` use different singularity criteria; `lu_solve_generic` misses NaN pivots
+- [ ] VLM: ground plane intersecting the geometry is accepted; add a minimum clearance check
+- [ ] VLM NACA camber: `p = 1` divides by zero (VLM part done: `LatticeError::InvalidCamber`); core NACA parser still drops camber for `p = 0`
+- [ ] Rotor BEMT: windmill and descent floored to zero induction though the docs claim them; no swirl (a'); bisection assumes monotone `g`; `RotorError::NotConverged` unreachable; dead `_cl_slope`/`_relaxation` parameters; wrong error variant for bad operating conditions
+- [ ] Rotor `SkewedWake`: factor is `1 + tan(chi)*x*cos(psi)`, Coleman/Glauert first harmonic is about `(4/3)tan(chi/2)`; can go negative
+- [ ] Rotor `CylinderWake`: NaN at r = R, 4001 elliptic evaluations per query; `Slipstream` NaN at T = 0, V = 0
+- [ ] Rotor `RotorGeometry::rectangular` with hub radius 0 produces an invalid first station; `validate()` misses NaN and `r_frac >= hub_radius/tip_radius`
+- [ ] Atmo turbulence: low-altitude scale lengths use feet coefficients on metres; `vertical` argument discarded; Dryden v/w need the second-order filter; von Karman is only a tau scaling; Euler step unstable for dt >= 2 tau (use the exact discrete update); validate sigma and length
+- [ ] Atmo ISA: 84.852-86 km mixes geopotential and geometric altitude; `altitude_from_pressure` range; `dynamic_viscosity(T <= 0)`; unbounded `at_isa_offset`
+- [x] Atmo `shear.rs` doc: peak gradient is at x = h/2, not h
+- [ ] Panel: `doublet` accepts NaN, zero chord or zero `v_inf`; centroid vortex can fall outside thin or cambered sections; `source.rs` comment says 8-point Gauss, table has 4
+- [x] Panel `compress::karman_tsien` doc claims weaker suction, code and tests give stronger (doc corrected to match the formula)
+- [ ] Stability: Durand-Kerner has no convergence flag and burns 2000 iterations on repeated roots (replace with Hessenberg QR); mode classification by exact `im == 0.0`; phugoid/short-period return `None` when overdamped (return the eigenvalues)
+- [ ] Stability: `LongitudinalPlant::from_derivatives` has no validation; two longitudinal plants with overlapping names; `with_integrator`/`with_feedback` panic on bad indices; trim Newton has no damping or CL_max check; turn trim uses absolute tolerances and fixed continuation
+- [ ] Stability: `cl_delta`/`cm_delta` use a uniform incidence change, not the named control
+- [ ] Gravity defined four times (`turn.rs`, `plant.rs`, `phugoid.rs`, `lateral.rs`); keep one
+- [ ] Core: `AirfoilPolar::new` accepts NaN; `StallModel` raises lift toward the plateau for already-stalled tabulated polars; `PolarSet` blends linearly in Re and allocates per call; `MachNumber::new`/`ReynoldsNumber::new` panic and no solver uses them; `viscous` has no validation; `cholesky_spd` passes NaN
+
+### 2. CLI usability
+- [ ] Adopt `clap`: per-subcommand `--help`, `--version`, `--out`/`-o` on every command, duplicate-flag errors, flags in any position
+- [ ] Display, not `{e:?}`, for errors; include file path and valid range (ISA 0-86 km)
+- [ ] Alpha sweep prints `0.30000000000000004`; make the point-count tolerance proportional to the step
+- [ ] Aircraft schema: CG, inertia, reference point; serde enums for `kind` and `symmetry`
+- [ ] Rotor: negative speed (descent), hub loss, polar input, per-station chord and twist, `rotor sweep` over rpm, J or collective; fix column alignment
+- [ ] Output: units column or header notes (per q-hat, per pb/2V), CL, CD, L/D, static margin, CL_max margin in the trim report; spanwise loading from `wing`; SVG polar; CSV for `trim`
+- [ ] Mach correction and `cd0` option in `wing`; warn on large alpha and on aspect ratio, taper and sweep extremes; bound camber `m`
+- [ ] Imperial unit layer and `isa_offset`
+- [ ] Binary-level CLI tests (`assert_cmd`) for argument parsing and exit codes
+
+### 3. Doc and spec drift
+- [ ] spec.txt: license (says MIT only), phases and crate list stale, `tpt-control` coupling claimed but absent, typos
+- [ ] todo.md: duplicate v0.1.0 tag items, `[x]` items under "Open:", "differentiable" claim covers the VLM only, Kani proofs not run in CI
+- [ ] Reconcile `docs/VALIDATION.md` with the "XFLR5 not run" note; say what Cholesky is for
+- [ ] "Eight examples" count in `crates/tpt-aero/README.md`; CLI README omits `rotor`, `trim`, `--json`
+- [ ] Move `todo.md` and `spec.txt` to `docs/dev/`
+
+### 4. Features
+- [ ] Stall, post-stall and CL_max in the VLM; CD profile drag with Mach and Re
+- [ ] Swirl-capable, windmill-capable BEMT; forward-flight BEMT using `SkewedWake` and `DynamicInflow`; differentiable rotor path
+- [ ] Atmosphere, wind and gust inputs in `SixDofConfig`; quaternion attitude option
+- [ ] Prelude gaps (`trim_steady_turn`, `sixdof`, `StateSpace`, modes, gusts, panel and rotor results); rename the `core` alias to `aero_core`
+- [ ] `tpt-aero-panel` `serde` feature; polar and stability/trim strategies in `tpt-aero-verify`
+- [ ] Tests: atmo `tests/`, compressible `from_surfaces`, ground effect with dihedral/fin, NaN and zero inputs, windmill, stalled polar, ISA 84-86 km
+
+### 5. Innovation
+- [ ] `tpt-aero-wasm` crate and a browser demo (polar, ISA, trim)
+- [ ] `tpt-aero-py` (PyO3/maturin) and a pandas recipe on `--json`
+- [ ] `tpt-aero report aircraft.toml` to Markdown/HTML (neutral point, static margin, modes, trim, derivatives, plots)
+- [ ] AVL `.avl` importer and exporter (decks exist in `docs/validation/avl/`)
+- [ ] Optimisation commands on the differentiable VLM: min induced drag twist, CG-range trim, speed/CG/mesh sweeps
+- [ ] Mesh-convergence estimate in results, with a suggested `n_span`
+- [ ] Validity-envelope flags (alpha, Mach, Re, beta) on every result
+- [ ] Validation: swept, cambered and control-surface cases against AVL; XFLR5; measured data for 6-DOF and compressible
+
+### 6. Adoption
+- [ ] Publish `tpt-math-*`, then `tpt-aero-*` (unblocks sibling-repo clone, cargo-generate template, `cargo install`); until then the README quick-start says to clone both repos side by side
+- [ ] Pin the `tpt-math` ref in `.github/actions/setup-tpt-math`
+- [ ] Release automation: `cargo-dist` binaries, `[package.metadata.binstall]`, `release-plz`
+- [ ] CI: Windows and macOS, MSRV 1.84, beta; rustdoc `-D warnings`; `mdbook build` and `test`, Pages deploy; build the cargo-generate template; auto-discover examples (`slipstream_tail` is skipped); coverage; criterion tracking; `cargo deny` advisories on a schedule; lychee and typos; Kani; thumbv6m builds without the `|| fallback` mask
+- [ ] Track `Cargo.lock`; dependabot
+- [ ] README: badges, runnable `fn main()` quick-start tested as a doctest, sample CLI output and a plot, book link
+- [ ] `examples/README.md` ladder; CONTRIBUTING, issue templates (including "validation discrepancy"), SECURITY; docs.rs metadata for the umbrella and CLI; keywords (uav, drone, propeller, glider)
+- [ ] Examples: UAV wing sizing, drone prop selection with motor curve, glider polar, trim and stability report
+- [ ] Templates: `cases/` directory of ready TOML files with expected outputs; `template uav|glider|quadrotor`; cargo-generate variants and prompts; reusable GitHub Action that runs a case file and uploads CSV
+- [ ] Docs: coming from AVL, XFLR5, OpenVSP and JSBSim; FAQ; cookbook; mesh-selection guide; error and units guide
+
+### Order
+1. Correctness fixes. 2. Publish prep and doc drift. 3. CLI hardening. 4. Physics gaps. 5. Showcase (wasm, Python, cases, AVL importer).

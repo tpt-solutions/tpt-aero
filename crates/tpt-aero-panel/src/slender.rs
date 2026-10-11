@@ -139,9 +139,9 @@ impl SlenderBody {
     /// incidence `alpha_rad`.
     ///
     /// Slender-body potential theory gives a sectional normal force per unit
-    /// length `l(x) = ρ V∞ α dS/dx`, where `S(x) = π r(x)²` is the local cross
+    /// length `l(x) = ρ V∞² α dS/dx`, where `S(x) = π r(x)²` is the local cross
     /// section. The body lift is `∫ l dx`, which for a bluff tail is about
-    /// `ρ V∞ α (S(L) − S(0))`, and the moment about `x_cg` (positive aft,
+    /// `ρ V∞² α (S(L) − S(0))`, and the moment about `x_cg` (positive aft,
     /// nose-up positive) is `−∫ (x − x_cg) l dx`.
     ///
     /// Returns `(lift, moment)` in N and N·m, with lift positive up. This is a
@@ -160,8 +160,8 @@ impl SlenderBody {
         let mut moment = 0.0;
         for (w, a) in self.x.windows(2).zip(analysis.windows(2)) {
             let dx = w[1] - w[0];
-            let l0 = rho * v_inf * alpha_rad * a[0].0;
-            let l1 = rho * v_inf * alpha_rad * a[1].0;
+            let l0 = rho * v_inf * v_inf * alpha_rad * a[0].0;
+            let l1 = rho * v_inf * v_inf * alpha_rad * a[1].0;
             let (x0, x1) = (w[0] - x_cg, w[1] - x_cg);
             lift += 0.5 * (l0 + l1) * dx;
             moment -= 0.5 * (x0 * l0 + x1 * l1) * dx;
@@ -250,7 +250,7 @@ mod tests {
         let (rho, v, alpha) = (1.225, 50.0, 0.05);
         let (lift, _) = b.munk_lift_and_moment(rho, v, alpha, 2.0);
         let s_base = core::f64::consts::PI * 0.2 * 0.2;
-        let expected = rho * v * alpha * s_base;
+        let expected = rho * v * v * alpha * s_base;
         assert!(
             (lift / expected - 1.0).abs() < 0.02,
             "lift {lift} vs {expected}"

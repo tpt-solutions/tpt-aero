@@ -5,7 +5,7 @@ use tpt_aero::rotor::{
     BemtSolver, HubLoss, OperatingCondition, RotorGeometry, SectionModel, TipLoss,
 };
 
-use crate::{finite, positive, CliError};
+use crate::{finite, positive, CliError, MAX_MESH_COUNT};
 
 /// A fully commented starting point for `tpt-aero rotor`.
 pub const ROTOR_TEMPLATE: &str = r#"# tpt-aero rotor case. Run: tpt-aero rotor rotor.toml [--json]
@@ -142,6 +142,12 @@ pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
         return Err(CliError::Invalid(
             "rotor.blades must be ≥ 1 and rotor.stations ≥ 2".into(),
         ));
+    }
+    if r.stations > MAX_MESH_COUNT {
+        return Err(CliError::Invalid(format!(
+            "rotor.stations must be <= {MAX_MESH_COUNT} (got {})",
+            r.stations
+        )));
     }
     let rpm = positive("operating.rpm", case.operating.rpm)?;
     let speed = finite("operating.speed", case.operating.speed)?;

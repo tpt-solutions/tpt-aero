@@ -52,7 +52,8 @@ fn navion_like() -> VlmModel {
         Surface::horizontal(wing, 20, 4),
         Surface::horizontal(tail, 8, 3)
             .at(5.0, 0.0, 0.0)
-            .with_incidence((-5.0_f64).to_radians()),
+            .with_incidence((-5.0_f64).to_radians())
+            .expect("valid tail incidence"),
     ])
     .expect("valid aircraft")
 }
@@ -69,7 +70,7 @@ fn wing_geometry_reproduces_table_i() {
 #[test]
 fn lift_slope_and_pitch_stiffness_against_flight_data() {
     let m = navion_like();
-    let d = longitudinal_fd(&m, 2.0_f64.to_radians(), 73.2, 1.225, 1e-4);
+    let d = longitudinal_fd(&m, 2.0_f64.to_radians(), 73.2, 1.225, 1e-4).expect("solve");
     let cl_ratio = d.cl_alpha / FLIGHT_CL_ALPHA;
     let cm_ratio = d.cm_alpha / FLIGHT_CM_ALPHA_25C;
     // Observed: C_Lα ≈ 4.98 (+15 %), C_mα ≈ −1.37 (1.8× the flight value).

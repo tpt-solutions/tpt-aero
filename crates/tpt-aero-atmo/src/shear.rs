@@ -91,7 +91,7 @@ impl DiscreteGust {
 
     /// The spatial gradient du/dx at penetration `x` (1/s when multiplied by
     /// the aircraft speed). Peak gradient of the 1−cos shape is `u_ds π/(2h)`
-    /// at `x = h`.
+    /// at `x = h/2`, where `sin(π x/h)` reaches 1.
     #[must_use]
     pub fn gradient_at(&self, x: f64) -> f64 {
         match self.shape {

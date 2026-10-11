@@ -25,7 +25,7 @@ fn wing_model() -> VlmModel {
 fn derivative_sets_round_trip_exactly() {
     let m = wing_model();
     let alpha = 3.0_f64.to_radians();
-    let long = longitudinal_fd(&m, alpha, 50.0, 1.225, 1e-4);
+    let long = longitudinal_fd(&m, alpha, 50.0, 1.225, 1e-4).expect("solve");
     assert_eq!(round_trip(&long), long);
     let lat = lateral_fd(&m, alpha, 50.0, 1.225).unwrap();
     assert_eq!(round_trip(&lat), lat);
@@ -36,7 +36,7 @@ fn derivative_sets_round_trip_exactly() {
 #[test]
 fn json_field_names_are_the_documented_ones() {
     let m = wing_model();
-    let long = longitudinal_fd(&m, 0.05, 50.0, 1.225, 1e-4);
+    let long = longitudinal_fd(&m, 0.05, 50.0, 1.225, 1e-4).expect("solve");
     let json = serde_json::to_value(long).unwrap();
     for key in [
         "cl_alpha", "cm_alpha", "cl_q", "cm_q", "cl_delta", "cm_delta",

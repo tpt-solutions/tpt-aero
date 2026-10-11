@@ -73,7 +73,7 @@ fn pitch_rate_derivatives_agree_with_incidence_method() {
     // perturbs per-element incidence, `solve_state` applies -omega x r.
     let m = model(&WingPlanform::rectangular(10.0, 1.0));
     let alpha = 2f64.to_radians();
-    let old = longitudinal_fd(&m, alpha, V, RHO, 1e-4);
+    let old = longitudinal_fd(&m, alpha, V, RHO, 1e-4).expect("solve");
     let prepared = m.prepare().unwrap();
     let c = m.reference().chord;
     let qhat = 1e-3;

@@ -62,7 +62,7 @@ fn trimmed_case(m: &VlmModel, v: f64) -> Case {
     .expect("trims");
     let r = m.reference();
     Case {
-        d: longitudinal_fd(m, t.alpha_rad, v, RHO, 1e-4),
+        d: longitudinal_fd(m, t.alpha_rad, v, RHO, 1e-4).expect("solve"),
         p: FullLongitudinalParameters {
             v_inf: v,
             chord: r.chord,

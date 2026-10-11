@@ -108,7 +108,8 @@ fn tail_incidence_changes_the_pitching_moment_in_the_expected_direction() {
     let level = VlmModel::from_surfaces(&[wing(), htail()]).unwrap();
     // Trailing-edge-down tail (positive incidence) lifts; negative incidence
     // carries download, which pitches the nose up about a CG ahead of it.
-    let download = VlmModel::from_surfaces(&[wing(), htail().with_incidence(-3.0 * DEG)]).unwrap();
+    let download =
+        VlmModel::from_surfaces(&[wing(), htail().with_incidence(-3.0 * DEG).unwrap()]).unwrap();
     let a = 0.0;
     let c_level = level.solve(a, V, RHO, &[]).unwrap();
     let c_down = download.solve(a, V, RHO, &[]).unwrap();
@@ -324,4 +325,32 @@ fn control_twists_select_panels_and_respect_symmetry() {
         m.control_twists(&[0.0]),
         Err(VlmError::DimensionMismatch)
     ));
+}
+
+#[test]
+fn naca_camber_domain_is_checked_before_building() {
+    use tpt_aero_vlm::{CamberModel, Lattice, LatticeError};
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    // p = 1 would divide by zero inside the camber line.
+    let p_one = CamberModel::Naca4 { m: 0.02, p: 1.0 };
+    assert_eq!(
+        Lattice::build(&wing, 4, 2, p_one).err(),
+        Some(LatticeError::InvalidCamber)
+    );
+    // p = 0 with non-zero camber would silently be treated as flat.
+    let p_zero = CamberModel::Naca4 { m: 0.02, p: 0.0 };
+    assert!(Lattice::build(&wing, 4, 2, p_zero).is_err());
+    let ok = CamberModel::Naca4 { m: 0.02, p: 0.4 };
+    assert!(Lattice::build(&wing, 4, 2, ok).is_ok());
+    // m = 0 means a flat plate, so p is not used and any value is fine.
+    let flat = CamberModel::Naca4 { m: 0.0, p: 1.0 };
+    assert!(Lattice::build(&wing, 4, 2, flat).is_ok());
+}
+
+#[test]
+fn incidence_shift_rejects_non_finite_angle() {
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    assert!(Surface::horizontal(wing, 4, 2)
+        .with_incidence(f64::NAN)
+        .is_err());
 }

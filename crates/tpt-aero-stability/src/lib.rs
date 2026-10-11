@@ -26,7 +26,7 @@
 //!         span: wing.span(),
 //!         moment_center: tpt_aero_core::Vec3::new(0.0, 0.0, 0.0),
 //!     });
-//! let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4);
+//! let d = longitudinal_fd(&model, 2.0_f64.to_radians(), 50.0, 1.225, 1e-4).expect("solve");
 //! assert!((4.7..=5.2).contains(&d.cl_alpha));
 //! assert!(d.cm_alpha < 0.0, "static stability ahead of the AC");
 //!

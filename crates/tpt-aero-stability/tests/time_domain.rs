@@ -79,7 +79,7 @@ fn longitudinal() -> Longitudinal {
         cd: t.cdi + 0.03,
         cd_alpha: drag_alpha_fd(&m, t.alpha_rad, V, RHO).unwrap(),
     };
-    let d = longitudinal_fd(&m, t.alpha_rad, V, RHO, 1e-4);
+    let d = longitudinal_fd(&m, t.alpha_rad, V, RHO, 1e-4).expect("solve");
     Longitudinal {
         plant: FullLongitudinalPlant::from_derivatives(&d, &params).unwrap(),
         params,
@@ -317,7 +317,9 @@ fn gust_alleviation_matches_the_far25_factor_at_the_design_gradient() {
     let cl_alpha = {
         // Lift-curve slope entering the quasi-static estimate.
         let m = aircraft(0.0);
-        longitudinal_fd(&m, 3.0_f64.to_radians(), V, RHO, 1e-4).cl_alpha
+        longitudinal_fd(&m, 3.0_f64.to_radians(), V, RHO, 1e-4)
+            .expect("solve")
+            .cl_alpha
     };
     let u_ds = 7.6;
     let quasi_static = RHO * V * cl_alpha * u_ds / (2.0 * wing_loading);
