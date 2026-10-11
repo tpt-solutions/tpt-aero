@@ -3,10 +3,12 @@ use tpt_aero_cli::{
     TrimKind, AIRCRAFT_TEMPLATE, ROTOR_TEMPLATE, TEMPLATE,
 };
 
+/// The numeric columns of a wing sweep. The trailing `cd` and `l_over_d`
+/// columns are skipped: `l_over_d` is blank at zero drag.
 fn rows(csv: &str) -> Vec<Vec<f64>> {
     csv.lines()
         .skip(1)
-        .map(|l| l.split(',').map(|v| v.parse().unwrap()).collect())
+        .map(|l| l.split(',').take(7).map(|v| v.parse().unwrap()).collect())
         .collect()
 }
 
@@ -203,10 +205,11 @@ fn trim_rejects_bad_input() {
         run_trim(AIRCRAFT_TEMPLATE, 0.0, 0.0, TrimKind::Level),
         Err(CliError::Invalid(_))
     ));
+    // An unknown surface kind is rejected when the case is parsed.
     let bad_kind = AIRCRAFT_TEMPLATE.replace("kind = \"vertical\"", "kind = \"canard\"");
     assert!(matches!(
         run_trim(&bad_kind, 50.0, 0.0, TrimKind::Level),
-        Err(CliError::Invalid(_))
+        Err(CliError::Parse(_))
     ));
     // A turn needs an aileron and a rudder.
     let no_aileron = AIRCRAFT_TEMPLATE.replace("name = \"aileron\"", "name = \"flap\"");
@@ -246,4 +249,160 @@ fn mesh_size_is_capped() {
         .replace("n_span = 24", "n_span = 200")
         .replace("n_chord = 4", "n_chord = 200");
     assert!(matches!(run_wing(&dense), Err(CliError::Invalid(_))));
+}
+
+#[test]
+fn sweep_alphas_print_without_float_noise() {
+    // 0.1 + 0.1 + 0.1 is 0.30000000000000004 in binary floating point.
+    let case = TEMPLATE.replace(
+        "alpha = { start = -4.0, stop = 10.0, step = 2.0 }",
+        "alpha = { start = 0.0, stop = 0.3, step = 0.1 }",
+    );
+    let csv = run_wing(&case).expect("sweep runs");
+    for line in csv.lines().skip(1) {
+        let alpha = line.split(',').next().expect("alpha column");
+        assert!(alpha.len() <= 6, "noisy alpha {alpha}");
+    }
+    assert!(csv.lines().any(|l| l.starts_with("0.3,")), "{csv}");
+}
+
+#[test]
+fn control_geometry_is_validated() {
+    let bad = |text: String| {
+        matches!(
+            run_trim(&text, 50.0, 0.0, TrimKind::Level),
+            Err(CliError::Invalid(_))
+        )
+    };
+    // Inboard past outboard.
+    let reversed = AIRCRAFT_TEMPLATE.replace("inboard = 2.5", "inboard = 6.0");
+    assert!(bad(reversed));
+    // Outside the planform (the elevator's span is 4.0 m, so |y| <= 2.0).
+    let outside = AIRCRAFT_TEMPLATE.replace("outboard = 2.0", "outboard = 9.0");
+    assert!(bad(outside));
+    // A duplicate control name would make trim ambiguous.
+    let dup = AIRCRAFT_TEMPLATE.replace("name = \"rudder\"", "name = \"elevator\"");
+    assert!(bad(dup));
+    // A sliver that covers no spanwise strip does nothing.
+    let sliver = AIRCRAFT_TEMPLATE.replace(
+        "inboard = 0.0\noutboard = 2.0",
+        "inboard = 0.0\noutboard = 0.01",
+    );
+    assert!(bad(sliver));
+}
+
+#[test]
+fn rotor_descent_taper_and_polar_inputs_work() {
+    use tpt_aero_cli::{run_rotor, run_rotor_sweep};
+    // Descent (negative axial speed) is accepted and gives a finite result.
+    let descent = ROTOR_TEMPLATE.replace("speed = 0.0", "speed = -2.0");
+    assert!(run_rotor(&descent).is_ok());
+    // A tapered blade is a valid case.
+    let tapered = ROTOR_TEMPLATE.replace("chord_tip_ratio = 1.0", "chord_tip_ratio = 0.5");
+    assert!(run_rotor(&tapered).is_ok());
+    // A tabulated polar is used when all three arrays are given.
+    let polar = ROTOR_TEMPLATE.replace(
+        "# To use a tabulated polar instead",
+        "alpha_deg = [-10.0, 0.0, 10.0]\ncl = [-0.8, 0.2, 1.2]\ncd = [0.03, 0.01, 0.02]\n# To use a tabulated polar instead",
+    );
+    assert!(run_rotor(&polar).is_ok());
+    // A partial polar is refused.
+    let partial = ROTOR_TEMPLATE.replace("[section]", "[section]\nalpha_deg = [0.0, 1.0]");
+    assert!(matches!(run_rotor(&partial), Err(CliError::Invalid(_))));
+    // An RPM sweep gives one row per point plus the header.
+    let csv = run_rotor_sweep(ROTOR_TEMPLATE, 4000.0, 6000.0, 1000.0).expect("sweeps");
+    assert_eq!(csv.lines().count(), 4);
+    assert!(csv.lines().nth(1).expect("row").starts_with("4000,"));
+    assert!(matches!(
+        run_rotor_sweep(ROTOR_TEMPLATE, 6000.0, 4000.0, 1000.0),
+        Err(CliError::Invalid(_))
+    ));
+}
+
+#[test]
+fn wing_extras_mach_cd0_warnings_camber_mesh_and_svg() {
+    use tpt_aero_cli::{run_wing, wing_mesh_check, wing_polar_svg, wing_warnings};
+    // Mach and cd0 add columns; the cd column is cdi + cd0.
+    let case = TEMPLATE.replace("[conditions]", "[conditions]\nmach = 0.5\ncd0 = 0.02");
+    let csv = run_wing(&case).expect("runs");
+    let header = csv.lines().next().expect("header");
+    assert!(header.ends_with(",cd,l_over_d"), "{header}");
+    let row: Vec<&str> = csv.lines().nth(1).expect("row").split(',').collect();
+    let cdi: f64 = row[2].parse().expect("cdi");
+    let cd: f64 = row[7].parse().expect("cd");
+    assert!((cd - cdi - 0.02).abs() < 1e-7);
+    // The template is in the envelope: no warnings.
+    assert!(wing_warnings(TEMPLATE).expect("parses").is_empty());
+    // Warnings fire outside it.
+    let fast = TEMPLATE.replace("speed = 50.0", "speed = 150.0");
+    assert!(wing_warnings(&fast)
+        .expect("parses")
+        .iter()
+        .any(|w| w.contains("Mach 0.3")));
+    let wide = TEMPLATE.replace("span = 10.0", "span = 40.0");
+    assert!(wing_warnings(&wide)
+        .expect("parses")
+        .iter()
+        .any(|w| w.contains("aspect ratio")));
+    // Camber above 10 % is refused.
+    let camber = TEMPLATE.replace("[mesh]\n", "camber = { m = 0.2, p = 0.4 }\n[mesh]\n");
+    assert!(run_wing(&camber).is_err());
+    // Mesh check reports a suggestion; the SVG is well formed enough to open.
+    let check = wing_mesh_check(TEMPLATE).expect("mesh check");
+    assert!(check.contains("suggested n_span") || check.contains("not converged"));
+    let svg = wing_polar_svg(TEMPLATE).expect("svg");
+    assert!(svg.starts_with("<svg") && svg.trim_end().ends_with("</svg>"));
+}
+
+#[test]
+fn new_templates_run_and_stay_in_the_envelope() {
+    use tpt_aero_cli::{
+        run_rotor, run_wing, wing_warnings, GLIDER_TEMPLATE, QUADROTOR_TEMPLATE, UAV_TEMPLATE,
+    };
+    assert!(run_wing(UAV_TEMPLATE).is_ok());
+    assert!(run_wing(GLIDER_TEMPLATE).is_ok());
+    assert!(run_rotor(QUADROTOR_TEMPLATE).is_ok());
+    assert!(wing_warnings(UAV_TEMPLATE).expect("parses").is_empty());
+    assert!(wing_warnings(GLIDER_TEMPLATE).expect("parses").is_empty());
+}
+
+#[test]
+fn aircraft_report_has_every_section() {
+    use tpt_aero_cli::aircraft_report;
+    let md = aircraft_report(AIRCRAFT_TEMPLATE, 50.0, 0.0).expect("reports");
+    for heading in [
+        "# Stability report",
+        "## Trim",
+        "## Static stability",
+        "## Derivatives",
+        "## Modes",
+    ] {
+        assert!(md.contains(heading), "missing {heading}");
+    }
+    // The template gives no inertias, so the report says the modes are estimates.
+    assert!(md.contains("estimates"));
+}
+
+#[test]
+fn avl_import_and_export_round_trip() {
+    use tpt_aero_cli::{avl_import_summary, wing_to_avl};
+    let deck = include_str!("../../../docs/validation/avl/t_tail_fine.avl");
+    let summary = avl_import_summary(deck, 2.0, 50.0).expect("imports");
+    assert!(summary.contains("surface     Fin"), "{summary}");
+    let cl_line = summary
+        .lines()
+        .find(|l| l.starts_with("CL "))
+        .expect("CL line");
+    let cl: f64 = cl_line
+        .split_whitespace()
+        .nth(1)
+        .expect("value")
+        .parse()
+        .expect("number");
+    assert!(cl > 0.1 && cl < 0.3, "CL {cl}");
+    // A wing case exported as AVL imports back with the same span and area.
+    let deck = wing_to_avl(TEMPLATE).expect("exports");
+    let summary = avl_import_summary(&deck, 2.0, 50.0).expect("re-imports");
+    assert!(summary.contains("b_ref       10"), "{summary}");
+    assert!(avl_import_summary("not a deck", 2.0, 50.0).is_err());
 }

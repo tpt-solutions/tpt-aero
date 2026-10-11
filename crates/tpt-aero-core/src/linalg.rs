@@ -12,7 +12,6 @@
 use alloc::{vec, vec::Vec};
 
 use crate::num::Real;
-use tpt_math_linalg_dense::{DMatrix, DVector};
 
 /// Errors from linear solves.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,14 +49,12 @@ pub fn lu_solve(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, SolveError> {
     if a.len() != n || a.iter().any(|row| row.len() != n) {
         return Err(SolveError::DimensionMismatch);
     }
-    let mut data = Vec::with_capacity(n * n);
-    for row in a {
-        data.extend_from_slice(row);
+    // One pivot test and one NaN rule for every solve: the same factorization
+    // the prepared (cached) path uses, so the two cannot disagree.
+    if !a.iter().flatten().chain(b).all(|v| v.is_finite()) {
+        return Err(SolveError::Singular);
     }
-    let m = DMatrix::from_row_slice(n, n, &data);
-    let rhs = DVector::from_row_slice(b);
-    let x = m.solve(&rhs).map_err(|_| SolveError::Singular)?;
-    Ok(x.iter().copied().collect())
+    LuFactors::factor(a)?.solve(b)
 }
 
 /// From-scratch partial-pivot LU solve generic over [`Real`].
@@ -75,6 +72,11 @@ pub fn lu_solve_generic<R: Real>(a: &[Vec<R>], b: &[R]) -> Result<Vec<R>, SolveE
     // in the original variable order (PA = LU with Pb applied implicitly).
     let mut m: Vec<Vec<R>> = a.to_vec();
     let mut x: Vec<R> = b.to_vec();
+
+    // A NaN entry would otherwise pass every comparison below and propagate.
+    if !a.iter().flatten().chain(b).all(|v| v.to_f64().is_finite()) {
+        return Err(SolveError::Singular);
+    }
 
     // Global magnitude scale for the singularity tolerance.
     let mut scale = R::zero();
@@ -96,7 +98,9 @@ pub fn lu_solve_generic<R: Real>(a: &[Vec<R>], b: &[R]) -> Result<Vec<R>, SolveE
                 p = i;
             }
         }
-        if best.le_f(eps) {
+        // `!(… > …)` rather than `<=` so a NaN pivot is also rejected.
+        let (best_f, eps_f) = (best.to_f64(), eps.to_f64());
+        if best_f.is_nan() || best_f <= eps_f {
             return Err(SolveError::Singular);
         }
         if p != k {
@@ -135,6 +139,10 @@ pub fn cholesky_spd(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, SolveError> {
     if n == 0 || a.len() != n || a.iter().any(|row| row.len() != n) {
         return Err(SolveError::DimensionMismatch);
     }
+    // NaN or infinite input would otherwise slip through the pivot test below.
+    if !a.iter().flatten().chain(b).all(|v| v.is_finite()) {
+        return Err(SolveError::NotPositiveDefinite);
+    }
     let mut l = vec![vec![0.0_f64; n]; n];
     for i in 0..n {
         for j in 0..=i {
@@ -143,7 +151,8 @@ pub fn cholesky_spd(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, SolveError> {
                 s -= l[i][k] * l[j][k];
             }
             if i == j {
-                if s <= 0.0 {
+                // NaN fails `s > 0` but is not caught by `s <= 0`, so test it too.
+                if s.is_nan() || s <= 0.0 {
                     return Err(SolveError::NotPositiveDefinite);
                 }
                 l[i][j] = s.sqrt();
@@ -408,5 +417,54 @@ mod lu_factor_tests {
             LuFactors::factor(&ragged).unwrap_err(),
             SolveError::DimensionMismatch
         );
+    }
+}
+
+#[cfg(test)]
+mod nan_tests {
+    use super::*;
+
+    #[test]
+    fn cholesky_rejects_nan_input() {
+        let a = vec![vec![4.0, f64::NAN], vec![f64::NAN, 2.0]];
+        assert_eq!(
+            cholesky_spd(&a, &[1.0, 1.0]),
+            Err(SolveError::NotPositiveDefinite)
+        );
+        let good = vec![vec![4.0, 1.0], vec![1.0, 3.0]];
+        assert!(cholesky_spd(&good, &[1.0, 2.0]).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod generic_nan_tests {
+    use super::*;
+
+    #[test]
+    fn generic_lu_rejects_nan_entries() {
+        let a = vec![vec![2.0, f64::NAN], vec![1.0, 3.0]];
+        assert_eq!(
+            lu_solve_generic::<f64>(&a, &[1.0, 1.0]),
+            Err(SolveError::Singular)
+        );
+        let good = vec![vec![2.0, 1.0], vec![1.0, 3.0]];
+        assert!(lu_solve_generic::<f64>(&good, &[1.0, 1.0]).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod single_criterion_tests {
+    use super::*;
+
+    #[test]
+    fn one_shot_and_cached_solves_agree_on_singular_and_nan_input() {
+        let singular = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
+        assert_eq!(lu_solve(&singular, &[1.0, 1.0]), Err(SolveError::Singular));
+        assert!(LuFactors::factor(&singular).is_err());
+        let nan = vec![vec![1.0, f64::NAN], vec![0.0, 1.0]];
+        assert_eq!(lu_solve(&nan, &[1.0, 1.0]), Err(SolveError::Singular));
+        let good = vec![vec![3.0, 1.0], vec![1.0, 2.0]];
+        let x = lu_solve(&good, &[9.0, 8.0]).expect("solves");
+        assert!((x[0] - 2.0).abs() < 1e-12 && (x[1] - 3.0).abs() < 1e-12);
     }
 }

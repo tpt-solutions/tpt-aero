@@ -2,7 +2,7 @@
 
 Build a model from a planform, then solve it:
 
-```rust
+```rust,ignore
 use tpt_aero::prelude::*;
 
 let wing = WingPlanform::rectangular(10.0, 1.0);

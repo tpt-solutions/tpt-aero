@@ -247,3 +247,40 @@ fn compressible_model_rejects_supersonic_and_invalid_mach() {
         );
     }
 }
+
+#[test]
+fn compressible_reference_is_physical_and_not_double_counted() {
+    use tpt_aero_vlm::ReferenceGeometry;
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    let mach = 0.6;
+    let default =
+        VlmModel::from_planform_compressible(&wing, 16, 4, CamberModel::None, mach).expect("valid");
+    // Supplying the true (physical) reference must give the same coefficients.
+    let physical = ReferenceGeometry {
+        area: wing.area(),
+        chord: wing.mac(),
+        span: wing.span(),
+        moment_center: tpt_aero_core::Vec3::zero(),
+    };
+    let overridden = default.clone().with_reference(physical);
+    let a = 3.0_f64.to_radians();
+    let s1 = default.solve(a, 50.0, 1.225, &[]).expect("solves");
+    let s2 = overridden.solve(a, 50.0, 1.225, &[]).expect("solves");
+    assert!((s1.cl - s2.cl).abs() < 1e-9, "{} vs {}", s1.cl, s2.cl);
+}
+
+#[test]
+fn surfaces_compressible_matches_planform_compressible_for_a_wing() {
+    use tpt_aero_vlm::Surface;
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    let single =
+        VlmModel::from_planform_compressible(&wing, 16, 4, CamberModel::None, 0.5).expect("valid");
+    let multi =
+        VlmModel::from_surfaces_compressible(&[Surface::horizontal(wing.clone(), 16, 4)], 0.5)
+            .expect("valid");
+    let a = 2.0_f64.to_radians();
+    let s1 = single.solve(a, 50.0, 1.225, &[]).expect("solves");
+    let s2 = multi.solve(a, 50.0, 1.225, &[]).expect("solves");
+    assert!((s1.cl - s2.cl).abs() < 1e-9);
+    assert!(VlmModel::from_surfaces_compressible(&[Surface::horizontal(wing, 4, 2)], 1.0).is_err());
+}

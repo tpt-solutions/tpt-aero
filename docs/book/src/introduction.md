@@ -27,3 +27,6 @@ influence matrix and linear solve is plain Rust. The solver crates are
   points for each analysis.
 * Want to know how far to trust a number? Read [validation and limits](validation.md)
   first.
+
+> The Rust blocks in this book are marked `ignore`: they show the calls, and the
+> crate's examples (`crates/tpt-aero/examples/`) compile and run the same code.

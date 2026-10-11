@@ -35,12 +35,12 @@
 extern crate alloc;
 
 pub mod bemt;
-pub mod wake_field;
 pub mod blade;
 pub mod inflow;
 pub mod loss;
 pub mod maps;
 pub mod slipstream;
+pub mod wake_field;
 
 pub use bemt::{
     solve_induction_bounded, BemtSolution, BemtSolver, OperatingCondition, RotorLoads,

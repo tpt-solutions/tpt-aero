@@ -1,0 +1,24 @@
+# tpt-aero rotor case. Run: tpt-aero rotor rotor.toml [--json]
+
+[rotor]
+radius = 0.5          # tip radius (m)
+hub_radius = 0.05     # root cutout radius (m)
+blades = 2
+chord = 0.05          # constant chord (m)
+stations = 20         # spanwise BEMT stations
+root_twist_deg = 25.0 # geometric twist at the root cutout
+tip_twist_deg = 8.0   # geometric twist at the tip
+tip_loss = true       # Prandtl tip-loss correction
+
+[section]             # linear 2-D closure: c_l = cl_slope·α (clamped), c_d = cd0 + cd_cl2·c_l²
+cl_slope = 6.283
+cl_max = 1.4
+cd0 = 0.01
+cd_cl2 = 0.01
+
+[operating]
+rpm = 6000.0          # shaft speed
+speed = 0.0           # axial flow speed (m/s): 0 = hover, > 0 = propeller inflow
+altitude = 0.0        # m (ISA density); or set `density` in kg/m^3 instead
+# density = 1.225
+collective_deg = 0.0  # added to the built-in twist

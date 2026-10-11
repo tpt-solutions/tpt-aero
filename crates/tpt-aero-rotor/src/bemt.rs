@@ -1,6 +1,8 @@
 //! Blade Element Momentum Theory: the coupled blade-element / momentum
 //! iteration for axial flight (hover through windmilling), following
-//! Leishman, *Principles of Helicopter Aerodynamics*, ch. 3.
+//! Leishman, *Principles of Helicopter Aerodynamics*, ch. 3. Covered: hover,
+//! climb and small descent (the bracket keeps `λ_tot ≥ 0`). Not covered: the
+//! windmill-brake state, where `λ_tot < 0`, and swirl (`a'`).
 //!
 //! Per annulus (span fraction `x = r/R`):
 //!
@@ -165,12 +167,20 @@ impl BemtSolver {
     /// Solve one operating condition.
     ///
     /// # Errors
-    /// [`RotorError::NotConverged`] if any annulus fails to converge;
+    /// [`RotorError::InvalidOperatingCondition`] for a non-finite or
+    /// non-positive shaft speed or density; [`RotorError::NotConverged`] if
+    /// any annulus exhausts its iteration budget;
     /// [`RotorError::InvalidSection`] if the closure returns non-finite values.
     pub fn solve(&self, op: &OperatingCondition) -> Result<BemtSolution, RotorError> {
         let tip_speed = self.geometry.tip_radius * op.omega;
-        if !(tip_speed > 0.0 && op.density > 0.0) {
-            return Err(RotorError::InvalidGeometry);
+        if !(tip_speed.is_finite()
+            && tip_speed > 0.0
+            && op.density.is_finite()
+            && op.density > 0.0
+            && op.axial_speed.is_finite()
+            && op.collective.is_finite())
+        {
+            return Err(RotorError::InvalidOperatingCondition);
         }
         let lambda_c = op.axial_speed / tip_speed;
         let mut sections = Vec::with_capacity(self.geometry.sections.len());
@@ -240,28 +250,20 @@ impl BemtSolver {
         theta: f64,
         lambda_c: f64,
     ) -> Result<(f64, usize), RotorError> {
-        let a_slope = match &self.section {
-            SectionModel::Linear { cl_slope, .. } => *cl_slope,
-            SectionModel::Polar { polar, .. } => polar.cl_alpha_slope(),
-        };
         let tip_loss = self.tip_loss;
         let hub_loss = self.hub_loss;
         let blades = self.geometry.blades;
-        let (lambda_i, iterations) = solve_induction_counted(
+        solve_induction_counted(
             sigma_r,
             theta,
             x,
             lambda_c,
-            a_slope,
             |alpha| self.section.coefficients(alpha),
             |phi, lambda_tot| {
                 tip_loss.factor(x, phi, lambda_tot, blades) * hub_loss.factor(x, phi, blades)
             },
-            self.relaxation,
             self.max_iterations,
         )
-        .ok_or(RotorError::InvalidSection)?;
-        Ok((lambda_i, iterations))
     }
 
     /// Combined tip/hub loss factor at one annulus.
@@ -339,10 +341,8 @@ pub fn solve_induction_bounded(
     theta: f64,
     x: f64,
     lambda_c: f64,
-    cl_slope: f64,
     coefficients: impl Fn(f64) -> (f64, f64),
     loss_factor: impl Fn(f64, f64) -> f64,
-    relaxation: f64,
     max_iterations: usize,
 ) -> Option<f64> {
     solve_induction_counted(
@@ -350,30 +350,28 @@ pub fn solve_induction_bounded(
         theta,
         x,
         lambda_c,
-        cl_slope,
         coefficients,
         loss_factor,
-        relaxation,
         max_iterations,
     )
+    .ok()
     .map(|(lambda_i, _)| lambda_i)
 }
 
 /// As [`solve_induction_bounded`], also returning the number of bisection
-/// halvings actually performed.
-#[must_use]
+/// halvings actually performed. Errors: [`RotorError::InvalidSection`] for a
+/// non-finite closure value, [`RotorError::NotConverged`] when the bracket is
+/// not narrowed to `1e-12` within `max_iterations` halvings.
 #[allow(clippy::too_many_arguments)]
 fn solve_induction_counted(
     sigma_r: f64,
     theta: f64,
     x: f64,
     lambda_c: f64,
-    _cl_slope: f64,
     coefficients: impl Fn(f64) -> (f64, f64),
     loss_factor: impl Fn(f64, f64) -> f64,
-    _relaxation: f64,
     max_iterations: usize,
-) -> Option<(f64, usize)> {
+) -> Result<(f64, usize), RotorError> {
     let residual = |lambda_i: f64| -> Option<f64> {
         let lambda_tot = (lambda_c + lambda_i).max(0.0);
         let phi = lambda_tot.atan2(x);
@@ -388,27 +386,29 @@ fn solve_induction_counted(
         Some(element - 4.0 * x * lambda_tot * lambda_i * loss)
     };
 
-    let mut lo = 0.0_f64;
+    // The bracket starts where the total inflow λ_tot = λ_c + λ_i is zero, so
+    // the momentum side stays non-negative over the whole search. In hover and
+    // climb (λ_c ≥ 0) that is λ_i = 0; in descent (λ_c < 0) it is λ_i = −λ_c.
+    // The windmill-brake state (λ_tot < 0) is not bracketed here.
+    let mut lo = (-lambda_c).max(0.0);
     let mut hi = 1.0_f64;
-    // No induced flow if the balance is already satisfied (or negative
-    // thrust — the brake / windmill regime keeps λ_i at the lower bound).
-    let g0 = residual(lo)?;
+    let g0 = residual(lo).ok_or(RotorError::InvalidSection)?;
     if g0 <= 0.0 {
-        return Some((0.0, 0));
+        return Ok((lo, 0));
     }
     let mut iterations = 0;
-    for _ in 0..max_iterations {
+    while iterations < max_iterations {
         iterations += 1;
         let mid = 0.5 * (lo + hi);
-        let g = residual(mid)?;
+        let g = residual(mid).ok_or(RotorError::InvalidSection)?;
         if g > 0.0 {
             lo = mid;
         } else {
             hi = mid;
         }
         if hi - lo < 1.0e-12 {
-            break;
+            return Ok((0.5 * (lo + hi), iterations));
         }
     }
-    Some((0.5 * (lo + hi), iterations))
+    Err(RotorError::NotConverged)
 }

@@ -2,7 +2,7 @@
 //!
 //! Atmospheric models for flight simulation:
 //!
-//! * [`isa`] — International Standard Atmosphere (0..86 km geopotential),
+//! * [`isa`] — International Standard Atmosphere (0..84.852 km geopotential),
 //!   with pressure-altitude inversion, ΔISA temperature offsets and
 //!   Sutherland viscosity.
 //! * [`shear`] — power-law / logarithmic wind shear and discrete gusts

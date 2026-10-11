@@ -8,7 +8,7 @@
 //!
 //! Run: `cargo run --example control_design`
 
-use tpt_aero::core::WingSection;
+use tpt_aero::aero_core::WingSection;
 use tpt_aero::prelude::*;
 use tpt_aero::stability::modes::Complex;
 use tpt_aero::stability::sim::{simulate, StateSpace};

@@ -1,0 +1,17 @@
+# tpt-aero glider wing case: a 15 m high-aspect-ratio glider. Run: tpt-aero wing glider.toml
+[wing]
+span = 15.0          # m
+root_chord = 1.0     # m
+tip_chord = 0.5      # m
+dihedral_deg = 3.0
+camber = { m = 0.015, p = 0.4 }
+
+[mesh]
+n_span = 30
+n_chord = 4
+
+[conditions]
+speed = 20.0         # m/s
+altitude = 500.0     # m (ISA)
+alpha = { start = -2.0, stop = 8.0, step = 1.0 }
+cd0 = 0.008          # clean-wing parasite drag

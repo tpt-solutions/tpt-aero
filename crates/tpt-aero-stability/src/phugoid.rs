@@ -20,9 +20,6 @@ use crate::longitudinal::LongitudinalDerivatives;
 use crate::modes::{eigenvalues4, Complex};
 use crate::sim::StateSpace;
 
-/// Standard gravity (m/s²).
-const GRAVITY: f64 = 9.80665;
-
 /// Flight condition and mass properties for [`FullLongitudinalPlant`].
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -119,7 +116,7 @@ impl FullLongitudinalPlant {
                 -per_mass * 2.0 * p.cd / v,
                 -per_mass * (p.cd_alpha - p.cl),
                 0.0,
-                -GRAVITY,
+                -crate::STANDARD_GRAVITY,
             ],
             [
                 -per_mass * 2.0 * p.cl / (v * v),
@@ -173,7 +170,9 @@ impl FullLongitudinalPlant {
     /// Split the spectrum into short period and phugoid (the two complex
     /// pairs, ordered by frequency). `None` if the spectrum is not two
     /// complex pairs, e.g. a statically unstable airframe or an overdamped
-    /// mode.
+    /// mode. In those cases the roots are still available from
+    /// [`FullLongitudinalPlant::eigenvalues`], so no information is lost;
+    /// `None` only means "not an oscillatory pair".
     #[must_use]
     pub fn modes(&self) -> Option<LongitudinalModes> {
         let eig = self.eigenvalues();

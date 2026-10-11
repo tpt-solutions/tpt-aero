@@ -1,6 +1,8 @@
-//! Rotor and propeller case files: one blade-element momentum operating point.
+//! Rotor and propeller case files: blade-element momentum operating points,
+//! and sweeps over shaft speed.
 
 use serde::{Deserialize, Serialize};
+use tpt_aero::aero_core::AirfoilPolar;
 use tpt_aero::rotor::{
     BemtSolver, HubLoss, OperatingCondition, RotorGeometry, SectionModel, TipLoss,
 };
@@ -14,21 +16,27 @@ pub const ROTOR_TEMPLATE: &str = r#"# tpt-aero rotor case. Run: tpt-aero rotor r
 radius = 0.5          # tip radius (m)
 hub_radius = 0.05     # root cutout radius (m)
 blades = 2
-chord = 0.05          # constant chord (m)
+chord = 0.05          # root chord (m)
+chord_tip_ratio = 1.0 # tip chord / root chord (1.0 = constant chord)
 stations = 20         # spanwise BEMT stations
 root_twist_deg = 25.0 # geometric twist at the root cutout
 tip_twist_deg = 8.0   # geometric twist at the tip
 tip_loss = true       # Prandtl tip-loss correction
+hub_loss = false      # Prandtl hub-loss correction
 
 [section]             # linear 2-D closure: c_l = cl_slope·α (clamped), c_d = cd0 + cd_cl2·c_l²
 cl_slope = 6.283
 cl_max = 1.4
 cd0 = 0.01
 cd_cl2 = 0.01
+# To use a tabulated polar instead, give all three arrays (degrees, -, -):
+# alpha_deg = [-10.0, 0.0, 10.0]
+# cl = [-0.8, 0.2, 1.2]
+# cd = [0.03, 0.01, 0.02]
 
 [operating]
 rpm = 6000.0          # shaft speed
-speed = 0.0           # axial flow speed (m/s): 0 = hover, > 0 = propeller inflow
+speed = 0.0           # axial flow speed (m/s): 0 = hover, > 0 = climb or propeller inflow, < 0 = descent
 altitude = 0.0        # m (ISA density); or set `density` in kg/m^3 instead
 # density = 1.225
 collective_deg = 0.0  # added to the built-in twist
@@ -51,6 +59,8 @@ struct RotorSpec {
     hub_radius: f64,
     blades: usize,
     chord: f64,
+    #[serde(default = "default_one")]
+    chord_tip_ratio: f64,
     #[serde(default = "default_stations")]
     stations: usize,
     #[serde(default)]
@@ -59,15 +69,22 @@ struct RotorSpec {
     tip_twist_deg: f64,
     #[serde(default = "default_true")]
     tip_loss: bool,
+    #[serde(default)]
+    hub_loss: bool,
 }
 
+/// Section closure: linear by default, or a tabulated polar when all of
+/// `alpha_deg`, `cl` and `cd` are given.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 struct SectionSpec {
     cl_slope: f64,
     cl_max: f64,
     cd0: f64,
     cd_cl2: f64,
+    alpha_deg: Option<Vec<f64>>,
+    cl: Option<Vec<f64>>,
+    cd: Option<Vec<f64>>,
 }
 
 impl Default for SectionSpec {
@@ -77,6 +94,9 @@ impl Default for SectionSpec {
             cl_max: 1.4,
             cd0: 0.01,
             cd_cl2: 0.01,
+            alpha_deg: None,
+            cl: None,
+            cd: None,
         }
     }
 }
@@ -101,6 +121,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_one() -> f64 {
+    1.0
+}
+
 /// Rotor performance at one operating point, in coefficient and dimensional form.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct RotorReport {
@@ -122,16 +146,13 @@ pub struct RotorReport {
     pub propeller_efficiency: f64,
 }
 
-/// Run one BEMT operating point described by a rotor case.
-///
-/// # Errors
-/// [`CliError::Parse`] for malformed TOML, [`CliError::Invalid`] for unusable
-/// values, and [`CliError::Solve`] if the BEMT iteration fails.
-pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
-    let case: RotorCase = toml::from_str(case_toml).map_err(|e| CliError::Parse(e.to_string()))?;
+/// Build the solver and the operating conditions from a parsed case. Returns
+/// the solver, the air density, the radius and the collective (rad).
+fn build(case: &RotorCase) -> Result<(BemtSolver, f64, f64, f64), CliError> {
     let r = &case.rotor;
     let radius = positive("rotor.radius", r.radius)?;
     let chord = positive("rotor.chord", r.chord)?;
+    let taper = positive("rotor.chord_tip_ratio", r.chord_tip_ratio)?;
     let hub = finite("rotor.hub_radius", r.hub_radius)?;
     if !(0.0..radius).contains(&hub) {
         return Err(CliError::Invalid(
@@ -148,12 +169,6 @@ pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
             "rotor.stations must be <= {MAX_MESH_COUNT} (got {})",
             r.stations
         )));
-    }
-    let rpm = positive("operating.rpm", case.operating.rpm)?;
-    let speed = finite("operating.speed", case.operating.speed)?;
-    if speed < 0.0 {
-        // Negative axial speed is a descent; BEMT accepts small negatives only.
-        return Err(CliError::Invalid("operating.speed must be ≥ 0".into()));
     }
     let density = match (case.operating.density, case.operating.altitude) {
         (Some(_), Some(_)) => {
@@ -172,27 +187,67 @@ pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
     let collective =
         finite("operating.collective_deg", case.operating.collective_deg)?.to_radians();
 
-    let geometry = RotorGeometry::rectangular(radius, hub, r.blades, chord, r.stations)
+    let mut geometry = RotorGeometry::rectangular(radius, hub, r.blades, chord, r.stations)
         .with_linear_twist(
             finite("rotor.root_twist_deg", r.root_twist_deg)?.to_radians(),
             finite("rotor.tip_twist_deg", r.tip_twist_deg)?.to_radians(),
         );
+    // Linear taper from the root chord to the tip chord.
+    let n = geometry.sections.len();
+    for (i, sec) in geometry.sections.iter_mut().enumerate() {
+        let t = i as f64 / (n - 1).max(1) as f64;
+        sec.chord = chord * (1.0 + (taper - 1.0) * t);
+    }
 
     let s = &case.section;
-    let section = SectionModel::Linear {
-        cl_slope: positive("section.cl_slope", s.cl_slope)?,
-        cl_max: positive("section.cl_max", s.cl_max)?,
-        cd0: finite("section.cd0", s.cd0)?,
-        cd_cl2: finite("section.cd_cl2", s.cd_cl2)?,
+    let section = match (&s.alpha_deg, &s.cl, &s.cd) {
+        (Some(alpha), Some(cl), Some(cd)) => {
+            let alphas: Vec<f64> = alpha.iter().map(|a| a.to_radians()).collect();
+            let cm = vec![0.0; alphas.len()];
+            let polar = AirfoilPolar::new(alphas, cl.clone(), cd.clone(), cm, 0.0, 1.0e6)
+                .map_err(|e| CliError::Invalid(format!("section polar: {e}")))?;
+            SectionModel::Polar { polar, stall: None }
+        }
+        (None, None, None) => SectionModel::Linear {
+            cl_slope: positive("section.cl_slope", s.cl_slope)?,
+            cl_max: positive("section.cl_max", s.cl_max)?,
+            cd0: finite("section.cd0", s.cd0)?,
+            cd_cl2: finite("section.cd_cl2", s.cd_cl2)?,
+        },
+        _ => {
+            return Err(CliError::Invalid(
+                "section polar needs all of alpha_deg, cl and cd".into(),
+            ))
+        }
     };
     let tip_loss = if r.tip_loss {
         TipLoss::Prandtl
     } else {
         TipLoss::None
     };
-    let solver = BemtSolver::new(geometry, section, tip_loss, HubLoss::None)
+    let hub_loss = if r.hub_loss {
+        HubLoss::Prandtl {
+            x_hub: hub / radius,
+        }
+    } else {
+        HubLoss::None
+    };
+    let solver = BemtSolver::new(geometry, section, tip_loss, hub_loss)
         .map_err(|e| CliError::Invalid(e.to_string()))?;
+    Ok((solver, density, radius, collective))
+}
 
+/// One operating point at shaft speed `rpm`.
+fn report_at(
+    solver: &BemtSolver,
+    case: &RotorCase,
+    density: f64,
+    radius: f64,
+    collective: f64,
+    rpm: f64,
+) -> Result<RotorReport, CliError> {
+    let rpm = positive("operating.rpm", rpm)?;
+    let speed = finite("operating.speed", case.operating.speed)?;
     let omega = rpm * core::f64::consts::TAU / 60.0;
     let sol = solver
         .solve(&OperatingCondition {
@@ -218,18 +273,84 @@ pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
     })
 }
 
+fn parse(case_toml: &str) -> Result<RotorCase, CliError> {
+    toml::from_str(case_toml).map_err(|e| CliError::Parse(e.to_string()))
+}
+
+/// Run one BEMT operating point described by a rotor case.
+///
+/// # Errors
+/// [`CliError::Parse`] for malformed TOML, [`CliError::Invalid`] for unusable
+/// values, and [`CliError::Solve`] if the BEMT iteration fails.
+pub fn run_rotor(case_toml: &str) -> Result<RotorReport, CliError> {
+    let case = parse(case_toml)?;
+    let (solver, density, radius, collective) = build(&case)?;
+    report_at(
+        &solver,
+        &case,
+        density,
+        radius,
+        collective,
+        case.operating.rpm,
+    )
+}
+
+/// Sweep the shaft speed over `start..=stop` rpm in steps of `step`, and return
+/// CSV: `rpm,thrust_n,torque_nm,power_w,ct,cq,cp`.
+///
+/// # Errors
+/// As [`run_rotor`], and [`CliError::Invalid`] for a non-positive step, a
+/// reversed range, or more than 1000 points.
+pub fn run_rotor_sweep(
+    case_toml: &str,
+    start: f64,
+    stop: f64,
+    step: f64,
+) -> Result<String, CliError> {
+    let start = positive("sweep start", start)?;
+    let stop = positive("sweep stop", stop)?;
+    let step = positive("sweep step", step)?;
+    if stop < start {
+        return Err(CliError::Invalid("sweep stop must be ≥ start".into()));
+    }
+    let n = ((stop - start) / step + 1.0e-9).floor() as usize + 1;
+    if n > 1000 {
+        return Err(CliError::Invalid(
+            "rpm sweep has more than 1000 points".into(),
+        ));
+    }
+    let case = parse(case_toml)?;
+    let (solver, density, radius, collective) = build(&case)?;
+    let mut out = String::from("rpm,thrust_n,torque_nm,power_w,ct,cq,cp\n");
+    for i in 0..n {
+        let rpm = start + step * i as f64;
+        let rpm = (rpm * 1.0e9).round() / 1.0e9;
+        let r = report_at(&solver, &case, density, radius, collective, rpm)?;
+        out.push_str(&format!(
+            "{rpm},{:.6},{:.6},{:.4},{:.8},{:.8},{:.8}\n",
+            r.thrust_n, r.torque_nm, r.power_w, r.ct, r.cq, r.cp
+        ));
+    }
+    Ok(out)
+}
+
 /// Human-readable summary of a rotor report.
 #[must_use]
 pub fn rotor_text(report: &RotorReport) -> String {
-    format!(
-        "thrust_n            {:.4}\ntorque_nm           {:.5}\npower_w             {:.3}\nct                  {:.6}\ncq                  {:.6}\ncp                  {:.6}\nfigure_of_merit     {:.4}\npropeller_efficiency {:.4}\n",
-        report.thrust_n,
-        report.torque_nm,
-        report.power_w,
-        report.ct,
-        report.cq,
-        report.cp,
-        report.figure_of_merit,
-        report.propeller_efficiency,
-    )
+    let rows: [(&str, String); 8] = [
+        ("thrust_n", format!("{:.4}", report.thrust_n)),
+        ("torque_nm", format!("{:.5}", report.torque_nm)),
+        ("power_w", format!("{:.3}", report.power_w)),
+        ("ct", format!("{:.6}", report.ct)),
+        ("cq", format!("{:.6}", report.cq)),
+        ("cp", format!("{:.6}", report.cp)),
+        ("figure_of_merit", format!("{:.4}", report.figure_of_merit)),
+        (
+            "propeller_efficiency",
+            format!("{:.4}", report.propeller_efficiency),
+        ),
+    ];
+    rows.iter()
+        .map(|(name, value)| format!("{name:<22}{value}\n"))
+        .collect()
 }

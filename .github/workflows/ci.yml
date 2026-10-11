@@ -49,9 +49,15 @@ jobs:
       - name: serde round trips
         run: cargo test -p tpt-aero --features serde --test serde
       - name: examples run to completion
+        # Every example in both crates is discovered, so none can be skipped silently.
         run: |
-          for e in wing_vlm propeller_sweep isa_table airfoil_cp stability_derivatives aircraft_stability gust_response control_design propeller_flight; do
+          for f in crates/tpt-aero/examples/*.rs; do
+            e=$(basename "$f" .rs)
             cargo run --release -p tpt-aero --example "$e" > /dev/null
+          done
+          for f in crates/tpt-aero-rotor/examples/*.rs; do
+            e=$(basename "$f" .rs)
+            cargo run --release -p tpt-aero-rotor --example "$e" > /dev/null
           done
       - name: CLI smoke test
         run: |
@@ -125,3 +131,70 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo bench --workspace --no-run
+
+  docs:
+    name: rustdoc (warnings denied) and mdbook
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tpt-math
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook
+      - name: rustdoc
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps
+      - name: mdbook build and test
+        run: |
+          mdbook build docs/book
+          mdbook test docs/book
+
+  platforms:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tpt-math
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  msrv:
+    name: MSRV 1.85
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tpt-math
+      - uses: dtolnay/rust-toolchain@1.85
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+
+  beta:
+    name: test (beta toolchain)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tpt-math
+      - uses: dtolnay/rust-toolchain@beta
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  kani:
+    # Bounded model checking of the BEMT induction bounds and the VLM AIC
+    # singularity proofs (tpt-aero-verify, cfg(kani)). Not yet run on a
+    # GitHub runner when this job was added; check its first run.
+    name: kani proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-tpt-math
+      - uses: model-checking/kani-github-action@v1
+      - run: cargo kani -p tpt-aero-verify

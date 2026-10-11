@@ -31,7 +31,8 @@ use crate::trim::TrimError;
 use tpt_aero_core::Real as _;
 
 /// Standard gravity (m/s²).
-pub const G: f64 = 9.806_65;
+/// Standard gravity (m/s²), re-exported from the crate root.
+pub const G: f64 = crate::STANDARD_GRAVITY;
 
 /// Turn rate `ψ̇` (rad/s) of a coordinated level turn at `bank_rad` and speed
 /// `v_inf`: `g tan φ / V`. Positive for a right turn.
@@ -231,9 +232,27 @@ fn newton(
         }
         let neg_f: Vec<f64> = f.iter().map(|fi| -fi).collect();
         let step = lu_solve(&jac, &neg_f).map_err(|_| TrimError::Singular)?;
-        for k in 0..N {
-            x[k] += step[k];
+        // Damped step: shrink it until the residual norm falls, so an overshoot
+        // does not jump to a different root or leave the valid envelope.
+        let norm = |r: &[f64; N]| r.iter().map(|v| v * v).sum::<f64>().sqrt();
+        let current = norm(&f);
+        let mut lambda = 1.0_f64;
+        let mut accepted = x;
+        for _ in 0..20 {
+            let mut trial = x;
+            for k in 0..N {
+                trial[k] += lambda * step[k];
+            }
+            if let Ok(rt) = residual(model, s, &trial, bank, turn_rate) {
+                if norm(&rt) < current || lambda < 1.0e-3 {
+                    accepted = trial;
+                    break;
+                }
+            }
+            lambda *= 0.5;
+            accepted = trial;
         }
+        x = accepted;
         if !x.iter().all(|v| v.is_finite()) || x[0].abs() > 1.0 || x[1].abs() > 1.0 {
             return Err(TrimError::NoConvergence);
         }
@@ -282,17 +301,36 @@ pub fn trim_steady_turn(model: &VlmModel, req: &TurnRequest<'_>) -> Result<TurnT
 
     let mut x = [0.05, 0.0, 0.0, 0.0, 0.0];
     let mut iterations = 0;
-    for step in 1..=CONTINUATION_STEPS {
-        let fraction = step as f64 / CONTINUATION_STEPS as f64;
-        let (root, its) = newton(
+    // Adaptive continuation: ramp the bank and turn rate from level flight. A
+    // ramp step that fails is halved and retried, down to a floor, so a hard
+    // case gets finer steps instead of a fixed schedule that gives up.
+    let max_step = 1.0 / CONTINUATION_STEPS as f64;
+    let min_step = max_step / 128.0;
+    let mut done = 0.0_f64;
+    let mut increment = max_step;
+    while done < 1.0 - 1.0e-12 {
+        let target = (done + increment).min(1.0);
+        match newton(
             model,
             &setup,
             x,
-            req.bank_rad * fraction,
-            req.turn_rate * fraction,
-        )?;
-        x = root;
-        iterations += its;
+            req.bank_rad * target,
+            req.turn_rate * target,
+        ) {
+            Ok((root, its)) => {
+                x = root;
+                iterations += its;
+                done = target;
+                increment = (increment * 1.5).min(max_step);
+            }
+            Err(TrimError::Singular) => return Err(TrimError::Singular),
+            Err(e) => {
+                if increment <= min_step {
+                    return Err(e);
+                }
+                increment *= 0.5;
+            }
+        }
     }
 
     // Load factor: wind-axis lift over weight, from the converged state.

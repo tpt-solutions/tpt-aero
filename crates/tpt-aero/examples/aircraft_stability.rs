@@ -8,7 +8,7 @@
 //!
 //! Run: `cargo run --example aircraft_stability`
 
-use tpt_aero::core::WingSection;
+use tpt_aero::aero_core::WingSection;
 use tpt_aero::prelude::*;
 
 fn fin_planform(height: f64, root: f64, tip: f64) -> WingPlanform {

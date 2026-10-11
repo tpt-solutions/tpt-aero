@@ -3,7 +3,7 @@
 
 use tpt_aero_rotor::{
     bemt::{BemtSolver, OperatingCondition},
-    blade::{RotorGeometry, SectionModel},
+    blade::{RotorError, RotorGeometry, SectionModel},
     loss::{HubLoss, TipLoss},
 };
 
@@ -314,4 +314,79 @@ fn rejects_invalid_geometry() {
     )
     .unwrap_err();
     assert_eq!(err, RotorError::InvalidGeometry);
+}
+
+#[test]
+fn zero_hub_rectangular_blade_is_valid_and_solves() {
+    // Hub radius 0 used to put the first station at r = 0, which validate()
+    // rejects; the constructor now starts the stations at a small fraction.
+    let geom = RotorGeometry::rectangular(1.0, 0.0, 2, 0.12, 20).with_linear_twist(0.30, 0.05);
+    assert!(geom.validate().is_ok());
+    let solver = BemtSolver::new(
+        geom,
+        SectionModel::Linear {
+            cl_slope: core::f64::consts::TAU,
+            cl_max: 1.2,
+            cd0: 0.01,
+            cd_cl2: 0.02,
+        },
+        TipLoss::Prandtl,
+        HubLoss::None,
+    )
+    .expect("valid");
+    let sol = solver
+        .solve(&OperatingCondition::hover(OMEGA, RHO))
+        .expect("solves");
+    assert!(sol.loads.ct > 0.0);
+}
+
+#[test]
+fn nan_and_station_inside_hub_are_rejected() {
+    let mut geom = RotorGeometry::rectangular(1.0, 0.2, 2, 0.12, 10);
+    geom.sections[3].chord = f64::NAN;
+    assert_eq!(geom.validate(), Err(RotorError::InvalidGeometry));
+    let mut inside = RotorGeometry::rectangular(1.0, 0.2, 2, 0.12, 10);
+    inside.sections[0].r_frac = 0.1; // inside the 0.2 hub
+    assert_eq!(inside.validate(), Err(RotorError::InvalidGeometry));
+}
+
+#[test]
+fn bad_operating_condition_has_its_own_error() {
+    let solver = reference_solver();
+    let op = OperatingCondition::hover(-OMEGA, RHO);
+    assert_eq!(
+        solver.solve(&op).unwrap_err(),
+        RotorError::InvalidOperatingCondition
+    );
+    let op = OperatingCondition::hover(OMEGA, f64::NAN);
+    assert_eq!(
+        solver.solve(&op).unwrap_err(),
+        RotorError::InvalidOperatingCondition
+    );
+}
+
+#[test]
+fn small_descent_keeps_total_inflow_non_negative() {
+    // The bracket used to clamp λ_tot at zero in descent, silently treating
+    // it as hover. Descent must now give a physical, positive-thrust solution
+    // with λ_tot ≥ 0 at every station.
+    let solver = reference_solver();
+    let op = OperatingCondition {
+        axial_speed: -0.02 * OMEGA,
+        ..OperatingCondition::hover(OMEGA, RHO)
+    };
+    let sol = solver.solve(&op).expect("descent converges");
+    assert!(sol.loads.ct > 0.0, "ct = {}", sol.loads.ct);
+    assert!(sol.sections.iter().all(|s| s.lambda_tot >= 0.0));
+    assert!(sol.sections.iter().all(|s| s.lambda_induced >= 0.0));
+}
+
+#[test]
+fn exhausted_iteration_budget_reports_not_converged() {
+    // Ten halvings cannot narrow the bracket to 1e-12, so the solve must say so.
+    let solver = reference_solver().with_iteration_controls(10, 1.0e-11, 0.6);
+    let err = solver
+        .solve(&OperatingCondition::hover(OMEGA, RHO))
+        .unwrap_err();
+    assert_eq!(err, RotorError::NotConverged);
 }

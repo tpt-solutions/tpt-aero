@@ -1,17 +1,31 @@
 //! International Standard Atmosphere (ICAO/US Standard Atmosphere 1976
-//! layer model), valid to 86 km geopotential.
+//! layer model). The modelled range is 0 to 84.852 km **geopotential**, which
+//! is the standard's 86 km **geometric** altitude; altitudes are geopotential
+//! throughout.
 
 /// ISA errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsaError {
-    /// Altitude outside the modeled range (0 .. 86 km geopotential).
+    /// Altitude outside the modeled range (0 .. 84.852 km geopotential).
     AltitudeOutOfRange,
+    /// Non-standard-temperature offset outside ±[`MAX_ISA_OFFSET`] kelvin, or
+    /// non-finite.
+    OffsetOutOfRange,
 }
+
+/// Top of the modelled range: 84.852 km geopotential (86 km geometric).
+pub const MAX_GEOPOTENTIAL_M: f64 = 84_852.0;
+
+/// Largest accepted non-standard temperature offset (K).
+pub const MAX_ISA_OFFSET: f64 = 100.0;
 
 impl core::fmt::Display for IsaError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            IsaError::AltitudeOutOfRange => write!(f, "altitude out of ISA range (0..86000 m)"),
+            IsaError::AltitudeOutOfRange => {
+                write!(f, "altitude out of ISA range (0..84852 m geopotential)")
+            }
+            IsaError::OffsetOutOfRange => write!(f, "ISA offset must be finite and within ±100 K"),
         }
     }
 }
@@ -56,9 +70,9 @@ pub const G0: f64 = 9.806_65;
 /// The ISA state at a geopotential altitude (m).
 ///
 /// # Errors
-/// [`IsaError::AltitudeOutOfRange`] outside 0..86 km.
+/// [`IsaError::AltitudeOutOfRange`] outside 0..84.852 km geopotential.
 pub fn at(altitude_m: f64) -> Result<IsaState, IsaError> {
-    if !(0.0..=86_000.0).contains(&altitude_m) {
+    if !(0.0..=MAX_GEOPOTENTIAL_M).contains(&altitude_m) {
         return Err(IsaError::AltitudeOutOfRange);
     }
     // Locate the layer (last base ≤ h).
@@ -99,11 +113,15 @@ pub fn at(altitude_m: f64) -> Result<IsaState, IsaError> {
 /// this agrees with [`at`].
 ///
 /// # Errors
-/// [`IsaError::AltitudeOutOfRange`] outside 0..86 km or for a non-finite
-/// offset.
+/// [`IsaError::AltitudeOutOfRange`] outside 0..84.852 km geopotential;
+/// [`IsaError::OffsetOutOfRange`] for a non-finite offset or one beyond
+/// ±[`MAX_ISA_OFFSET`] K.
 pub fn at_isa_offset(altitude_m: f64, delta_isa: f64) -> Result<IsaState, IsaError> {
-    if !(0.0..=86_000.0).contains(&altitude_m) || !delta_isa.is_finite() {
+    if !(0.0..=MAX_GEOPOTENTIAL_M).contains(&altitude_m) {
         return Err(IsaError::AltitudeOutOfRange);
+    }
+    if !(delta_isa.is_finite() && delta_isa.abs() <= MAX_ISA_OFFSET) {
+        return Err(IsaError::OffsetOutOfRange);
     }
     let mut pressure = LAYERS[0].2;
     let mut temperature = LAYERS[0].1 + delta_isa;
@@ -138,10 +156,16 @@ pub fn at_isa_offset(altitude_m: f64, delta_isa: f64) -> Result<IsaState, IsaErr
 /// law `μ = μ₀ (T/T₀)^{3/2} (T₀ + S) / (T + S)` with `μ₀ = 1.716e-5` Pa·s at
 /// `T₀ = 273.15` K and `S = 110.4` K.
 #[must_use]
+///
+/// Returns NaN for a non-positive or non-finite temperature, which is not a
+/// physical state (Sutherland's law is undefined there).
 pub fn dynamic_viscosity(t: f64) -> f64 {
     const MU0: f64 = 1.716e-5;
     const T0: f64 = 273.15;
     const S: f64 = 110.4;
+    if !(t.is_finite() && t > 0.0) {
+        return f64::NAN;
+    }
     MU0 * (t / T0).powf(1.5) * (T0 + S) / (t + S)
 }
 
@@ -200,14 +224,17 @@ mod offset_tests {
 /// Useful for cockpit instrumentation; accurate within the modeled range.
 ///
 /// # Errors
-/// [`IsaError::AltitudeOutOfRange`] if the pressure is outside the range of
-/// the layer model.
+/// [`IsaError::AltitudeOutOfRange`] if the pressure is not finite or lies
+/// outside the pressures the model reaches, from sea level down to the top of
+/// the range (about 0.37 Pa).
 pub fn altitude_from_pressure(pressure_pa: f64) -> Result<f64, IsaError> {
-    if !(3.0..=101_400.0).contains(&pressure_pa) {
+    let p_top = at(MAX_GEOPOTENTIAL_M)?.pressure;
+    let p_sea = at(0.0)?.pressure;
+    if !(pressure_pa.is_finite() && pressure_pa >= p_top && pressure_pa <= p_sea) {
         return Err(IsaError::AltitudeOutOfRange);
     }
     // Bisect on the monotone pressure profile — simple and layer-agnostic.
-    let (mut lo, mut hi) = (0.0_f64, 86_000.0_f64);
+    let (mut lo, mut hi) = (0.0_f64, MAX_GEOPOTENTIAL_M);
     for _ in 0..80 {
         let mid = 0.5 * (lo + hi);
         if at(mid).map(|s| s.pressure).unwrap_or(0.0) > pressure_pa {
@@ -268,5 +295,57 @@ mod tests {
     fn rejects_out_of_range() {
         assert_eq!(at(-1.0), Err(IsaError::AltitudeOutOfRange));
         assert_eq!(at(90_000.0), Err(IsaError::AltitudeOutOfRange));
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+
+    #[test]
+    fn altitude_range_stops_at_the_geopotential_top() {
+        assert!(at(MAX_GEOPOTENTIAL_M).is_ok());
+        assert_eq!(at(86_000.0), Err(IsaError::AltitudeOutOfRange));
+        assert_eq!(at(-1.0), Err(IsaError::AltitudeOutOfRange));
+    }
+
+    #[test]
+    fn offset_is_bounded_and_finite() {
+        assert_eq!(at_isa_offset(0.0, 1.0e6), Err(IsaError::OffsetOutOfRange));
+        assert_eq!(
+            at_isa_offset(0.0, f64::NAN),
+            Err(IsaError::OffsetOutOfRange)
+        );
+        assert!(at_isa_offset(0.0, MAX_ISA_OFFSET).is_ok());
+    }
+
+    #[test]
+    fn pressure_inversion_round_trips_across_the_range() {
+        for &h in &[
+            0.0_f64,
+            5_000.0,
+            30_000.0,
+            60_000.0,
+            MAX_GEOPOTENTIAL_M - 1.0,
+        ] {
+            let p = at(h).expect("valid").pressure;
+            let back = altitude_from_pressure(p).expect("in range");
+            assert!((back - h).abs() < 1.0, "h {h} -> p {p} -> {back}");
+        }
+    }
+
+    #[test]
+    fn pressure_below_the_model_top_is_rejected() {
+        // Previously this silently returned the 86 km ceiling.
+        let p_top = at(MAX_GEOPOTENTIAL_M).expect("valid").pressure;
+        assert!(altitude_from_pressure(0.5 * p_top).is_err());
+        assert!(altitude_from_pressure(f64::NAN).is_err());
+    }
+
+    #[test]
+    fn viscosity_is_nan_for_non_physical_temperature() {
+        assert!(dynamic_viscosity(0.0).is_nan());
+        assert!(dynamic_viscosity(-10.0).is_nan());
+        assert!(dynamic_viscosity(288.15).is_finite());
     }
 }

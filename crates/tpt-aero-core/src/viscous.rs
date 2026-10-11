@@ -13,8 +13,13 @@ use crate::num::Real;
 pub const TRANSITION_RE: f64 = 5.0e5;
 
 /// Laminar flat-plate skin-friction coefficient (Blasius), `C_f = 1.328/√Re`.
+///
+/// Returns NaN for a Reynolds number that is not finite and positive.
 #[must_use]
 pub fn laminar_flat_plate_cf(re: f64) -> f64 {
+    if !(re.is_finite() && re > 0.0) {
+        return f64::NAN;
+    }
     1.328 / re.sqrt()
 }
 
@@ -23,9 +28,12 @@ pub fn laminar_flat_plate_cf(re: f64) -> f64 {
 /// `C_f = 0.074 Re^{-1/5} − 1700/Re` for `Re ≥ 5·10⁵`, Blasius below.
 ///
 /// `re` is the Reynolds number based on the plate length (or chord) in the
-/// flow direction.
+/// flow direction. Returns NaN unless `re` is finite and positive.
 #[must_use]
 pub fn flat_plate_cf(re: f64) -> f64 {
+    if !(re.is_finite() && re > 0.0) {
+        return f64::NAN;
+    }
     if re < TRANSITION_RE {
         laminar_flat_plate_cf(re)
     } else {
@@ -37,10 +45,14 @@ pub fn flat_plate_cf(re: f64) -> f64 {
 /// thickness ratio `t/c`: `FF = 1 + 2(t/c) + 60(t/c)⁴`.
 ///
 /// Multiplies the flat-plate friction to account for pressure drag due to
-/// thickness.
+/// thickness. Returns NaN for a thickness ratio that is negative or not
+/// finite.
 #[must_use]
 pub fn form_factor(thickness_ratio: f64) -> f64 {
     let t = thickness_ratio;
+    if !(t.is_finite() && t >= 0.0) {
+        return f64::NAN;
+    }
     1.0 + 2.0 * t + 60.0 * t.powf(4.0)
 }
 
@@ -146,5 +158,21 @@ mod tests {
             ..DragComponent::lifting_surface(5.0e6, 1.0, 0.0)
         };
         assert!((body.cd0() - flat_plate_cf(5.0e6) * 1.5).abs() < 1e-12);
+    }
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_inputs_give_nan_not_plausible_values() {
+        assert!(flat_plate_cf(0.0).is_nan());
+        assert!(flat_plate_cf(-1.0e6).is_nan());
+        assert!(flat_plate_cf(f64::NAN).is_nan());
+        assert!(laminar_flat_plate_cf(0.0).is_nan());
+        assert!(form_factor(-0.1).is_nan());
+        assert!(form_factor(f64::INFINITY).is_nan());
+        assert!(flat_plate_cf(1.0e6).is_finite());
     }
 }

@@ -38,8 +38,12 @@ pub enum VlmError {
     /// [`WakeModel::Freestream`] wake. The cache assumes the body-axis wake,
     /// so solve each angle with [`VlmModel::solve`] instead.
     FreestreamWakeNotPrepared,
-    /// The ground-plane height is not finite and positive.
+    /// The ground-plane height is not finite and positive, or the geometry
+    /// reaches down to or below the ground plane.
     InvalidGroundHeight,
+    /// The reference area, chord or span is not finite and positive, so the
+    /// coefficients would be meaningless.
+    InvalidReference,
 }
 
 /// Direction of the horseshoe trailing legs.
@@ -73,6 +77,12 @@ impl core::fmt::Display for VlmError {
                 f,
                 "prepared solves need the body-axis wake; solve freestream-wake models per angle"
             ),
+            VlmError::InvalidReference => {
+                write!(
+                    f,
+                    "reference area, chord and span must be finite and positive"
+                )
+            }
             VlmError::InvalidGroundHeight => {
                 write!(f, "ground height must be finite and positive")
             }
@@ -349,6 +359,7 @@ impl PreparedVlm<'_> {
             return Err(VlmError::InvalidFlightCondition);
         }
         let m = self.model;
+        m.check_ground()?;
         let refg = m.reference;
         let (sa, ca) = alpha.sin_cos();
         let (sb, cb) = beta.sin_cos();
@@ -389,7 +400,15 @@ impl PreparedVlm<'_> {
         // Wind axes: drag along the relative wind, lift normal to it in the
         // plane of symmetry, side force completing the right-handed triad.
         let drag_dir = v.normalized();
-        let lift_dir = drag_dir.cross(&Vec3::new(0.0, 1.0, 0.0)).normalized();
+        // Lift is drag × ŷ. At |β| = 90° the wind is along ŷ and the cross
+        // product vanishes, so take its limit from the symmetry plane instead:
+        // the unit vector normal to the relative wind in the x–z plane.
+        let lift_cross = drag_dir.cross(&Vec3::new(0.0, 1.0, 0.0));
+        let lift_dir = if lift_cross.dot(&lift_cross) > 1.0e-24 {
+            lift_cross.normalized()
+        } else {
+            Vec3::new(-sa, 0.0, ca)
+        };
         let side_dir = lift_dir.cross(&drag_dir);
         let q_s = 0.5 * density * v_inf * v_inf * refg.area * m.beta;
         Ok(StateLoads {
@@ -517,6 +536,59 @@ impl VlmModel {
         Ok(model)
     }
 
+    /// Göthert compressible model of a multi-surface aircraft. Horizontal
+    /// surfaces (roll 0) are stretched in body *y* by `β`; fins (roll π/2) lie
+    /// in the x–z plane and are unchanged by the transformation. The reference
+    /// comes from the first surface, which should be the wing.
+    ///
+    /// # Errors
+    /// [`VlmError::InvalidFlightCondition`] unless `0 ≤ mach < 1` or a
+    /// surface is rolled to an angle other than 0 or π/2;
+    /// [`VlmError::Lattice`] if a stretched planform is invalid.
+    pub fn from_surfaces_compressible(
+        surfaces: &[crate::aircraft::Surface],
+        mach: f64,
+    ) -> Result<Self, VlmError> {
+        if !(mach.is_finite() && (0.0..1.0).contains(&mach)) {
+            return Err(VlmError::InvalidFlightCondition);
+        }
+        let beta = (1.0 - mach * mach).sqrt();
+        let half_pi = core::f64::consts::FRAC_PI_2;
+        let stretched = surfaces
+            .iter()
+            .map(|s| {
+                let factor = if s.roll_rad.abs() < 1.0e-12 {
+                    beta
+                } else if (s.roll_rad - half_pi).abs() < 1.0e-12 {
+                    1.0
+                } else {
+                    return Err(VlmError::InvalidFlightCondition);
+                };
+                let sections: Vec<tpt_aero_core::WingSection> = s
+                    .planform
+                    .sections()
+                    .iter()
+                    .map(|sec| tpt_aero_core::WingSection {
+                        le: Vec3::new(sec.le.x, sec.le.y * factor, sec.le.z),
+                        chord: sec.chord,
+                        twist: sec.twist,
+                    })
+                    .collect();
+                let planform =
+                    tpt_aero_core::WingPlanform::from_sections(sections).map_err(|_| {
+                        VlmError::Lattice(crate::lattice::LatticeError::InvalidPlanform)
+                    })?;
+                let mut out = s.clone();
+                out.planform = planform;
+                out.offset = Vec3::new(s.offset.x, s.offset.y * factor, s.offset.z);
+                Ok(out)
+            })
+            .collect::<Result<Vec<_>, VlmError>>()?;
+        let mut model = Self::from_surfaces(&stretched)?;
+        model.beta = beta;
+        Ok(model)
+    }
+
     /// The Göthert/Prandtl–Glauert factor `β` (`1` for an incompressible model).
     #[must_use]
     pub const fn compressibility_beta(&self) -> f64 {
@@ -574,10 +646,32 @@ impl VlmModel {
 
     /// Reject a ground height that is not finite and positive.
     fn check_ground(&self) -> Result<(), VlmError> {
-        match self.ground_height {
-            Some(h) if !(h.is_finite() && h > 0.0) => Err(VlmError::InvalidGroundHeight),
-            _ => Ok(()),
+        let r = self.reference;
+        if !([r.area, r.chord, r.span]
+            .iter()
+            .all(|v| v.is_finite() && *v > 0.0))
+        {
+            return Err(VlmError::InvalidReference);
         }
+        let Some(h) = self.ground_height else {
+            return Ok(());
+        };
+        if !(h.is_finite() && h > 0.0) {
+            return Err(VlmError::InvalidGroundHeight);
+        }
+        // The ground is the plane z = −h. Geometry at or below it would sit in
+        // the image system's singularity, so require every bound point and
+        // collocation point to lie strictly above it.
+        let lowest = self
+            .lattice
+            .elements()
+            .iter()
+            .flat_map(|e| [e.bound_a.z, e.bound_b.z, e.collocation.z])
+            .fold(f64::INFINITY, f64::min);
+        if lowest.is_finite() && lowest <= -h {
+            return Err(VlmError::InvalidGroundHeight);
+        }
+        Ok(())
     }
 
     /// The trailing-leg direction this model uses.
@@ -586,17 +680,17 @@ impl VlmModel {
         self.wake
     }
 
-    /// Build from a pre-made lattice; reference geometry is estimated from
-    /// the lattice panels (use [`VlmModel::with_reference`] to override).
+    /// Build from a pre-made lattice. The reference geometry is estimated from
+    /// the **first surface** only (surface index 0), as in
+    /// [`VlmModel::from_surfaces`]: its area, and its span taken as the sum of
+    /// its strip widths (each strip has `n_chord` panels, so its width is
+    /// counted once). Use [`VlmModel::with_reference`] to override.
     #[must_use]
     pub fn from_lattice(lattice: Lattice) -> Self {
-        let area: f64 = lattice.elements().iter().map(|e| e.area).sum();
-        let span: f64 = lattice
-            .elements()
-            .iter()
-            .filter(|e| e.strip == 0)
-            .map(|e| e.strip_dy)
-            .sum();
+        let n_chord = lattice.n_chord().max(1) as f64;
+        let first = lattice.elements().iter().filter(|e| e.surface == 0);
+        let area: f64 = first.clone().map(|e| e.area).sum();
+        let span: f64 = first.map(|e| e.strip_dy).sum::<f64>() / n_chord;
         let chord = if area.abs() < 1.0e-12 {
             1.0
         } else {
@@ -692,9 +786,19 @@ impl VlmModel {
     }
 
     /// Override the reference geometry (e.g. to match a wind-tunnel model).
+    ///
+    /// The reference is given in physical units. On a compressible model
+    /// (`β < 1`) the area and span are stretched by `β` internally, the same
+    /// as the default reference, so that `S` in the coefficients is the true
+    /// wing area and is not counted twice.
     #[must_use]
     pub fn with_reference(mut self, reference: ReferenceGeometry) -> Self {
-        self.reference = reference;
+        let b = self.beta;
+        self.reference = ReferenceGeometry {
+            area: reference.area * b,
+            span: reference.span * b,
+            ..reference
+        };
         self
     }
 
@@ -932,6 +1036,7 @@ impl VlmModel {
         {
             return Err(VlmError::InvalidFlightCondition);
         }
+        self.check_ground()?;
         let n = self.lattice.len();
         if !twists.is_empty() && twists.len() != n {
             return Err(VlmError::DimensionMismatch);

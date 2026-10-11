@@ -59,8 +59,7 @@ mod proofs {
         let loss = |_phi: f64, _lambda_tot: f64| -> f64 { 1.0 };
 
         let lambda =
-            solve_induction_bounded(sigma_r, theta, x, lambda_c, 6.0, closure, loss, 0.5, 60)
-                .unwrap_or(0.0);
+            solve_induction_bounded(sigma_r, theta, x, lambda_c, closure, loss, 60).unwrap_or(0.0);
         // THE invariant (spec: 0 ≤ a ≤ 1):
         assert!(lambda >= 0.0 && lambda <= 1.0, "λ_i = {lambda}");
     }
@@ -80,10 +79,8 @@ mod proofs {
             0.2,
             0.5,
             lambda_c,
-            6.0,
             |alpha| (6.0 * alpha, 0.02),
             |_phi, _lt| residual(_lt).signum() * 0.5 + 0.5, // bounded, positive
-            0.5,
             60,
         )
         .unwrap_or(0.0);

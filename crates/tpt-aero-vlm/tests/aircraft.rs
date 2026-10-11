@@ -354,3 +354,150 @@ fn incidence_shift_rejects_non_finite_angle() {
         .with_incidence(f64::NAN)
         .is_err());
 }
+
+#[test]
+fn lattice_reference_span_is_the_surface_span_not_a_multiple_of_chord_panels() {
+    use tpt_aero_vlm::{CamberModel, Lattice};
+    // The span used to be the first strip's width summed over every chordwise
+    // panel, i.e. n_chord times too large.
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    let lattice = Lattice::build(&wing, 8, 4, CamberModel::None).expect("valid");
+    let model = VlmModel::from_lattice(lattice);
+    let r = model.reference();
+    assert!((r.span - 10.0).abs() < 1e-9, "span {}", r.span);
+    assert!((r.area - 10.0).abs() < 1e-9, "area {}", r.area);
+    assert!((r.chord - 1.0).abs() < 1e-9, "chord {}", r.chord);
+}
+
+#[test]
+fn ground_below_the_geometry_is_rejected() {
+    // A wing at z = 0 with the ground at z = -h solves for h > 0. A non-positive
+    // ground height is rejected as invalid.
+    let wing = WingPlanform::rectangular(10.0, 1.0);
+    let model =
+        VlmModel::from_planform(&wing, 8, 2, tpt_aero_vlm::CamberModel::None).expect("valid");
+    assert!(model
+        .clone()
+        .with_ground_height(2.0)
+        .solve(0.05, 30.0, 1.225, &[])
+        .is_ok());
+    assert!(model
+        .with_ground_height(0.0)
+        .solve(0.05, 30.0, 1.225, &[])
+        .is_err());
+}
+
+#[test]
+fn sideslip_at_ninety_degrees_gives_finite_loads() {
+    use tpt_aero_vlm::FlightState;
+    // At β = 90° the wind is along ŷ; the lift direction used to be NaN.
+    let model = VlmModel::from_planform(
+        &WingPlanform::rectangular(10.0, 1.0),
+        8,
+        2,
+        tpt_aero_vlm::CamberModel::None,
+    )
+    .expect("valid");
+    let prepared = model.prepare().expect("prepares");
+    let st = FlightState {
+        alpha: 0.05,
+        beta: core::f64::consts::FRAC_PI_2,
+        p: 0.0,
+        q: 0.0,
+        r: 0.0,
+    };
+    let loads = prepared.solve_state(&st, 30.0, 1.225).expect("solves");
+    assert!(loads.c_lift.is_finite() && loads.c_drag.is_finite() && loads.c_side.is_finite());
+}
+
+#[test]
+fn zero_reference_area_is_rejected() {
+    let model = VlmModel::from_planform(
+        &WingPlanform::rectangular(10.0, 1.0),
+        8,
+        2,
+        tpt_aero_vlm::CamberModel::None,
+    )
+    .expect("valid")
+    .with_reference(tpt_aero_vlm::ReferenceGeometry {
+        area: 0.0,
+        chord: 1.0,
+        span: 10.0,
+        moment_center: tpt_aero_core::Vec3::zero(),
+    });
+    assert_eq!(
+        model.solve(0.05, 30.0, 1.225, &[]).unwrap_err(),
+        tpt_aero_vlm::VlmError::InvalidReference
+    );
+}
+
+#[test]
+fn too_few_strips_for_a_kinked_planform_is_an_error() {
+    use tpt_aero_core::{Vec3, WingSection};
+    use tpt_aero_vlm::{CamberModel, Lattice, LatticeError};
+    let kinked = WingPlanform::from_sections(vec![
+        WingSection {
+            le: Vec3::new(0.0, -5.0, 0.0),
+            chord: 1.0,
+            twist: 0.0,
+        },
+        WingSection {
+            le: Vec3::new(0.0, -2.0, 0.0),
+            chord: 1.0,
+            twist: 0.0,
+        },
+        WingSection {
+            le: Vec3::new(0.5, 5.0, 0.0),
+            chord: 0.4,
+            twist: 0.0,
+        },
+    ])
+    .expect("valid");
+    // Two segments need at least two strips.
+    assert_eq!(
+        Lattice::build(&kinked, 1, 2, CamberModel::None).err(),
+        Some(LatticeError::InvalidResolution)
+    );
+    assert!(Lattice::build(&kinked, 2, 2, CamberModel::None).is_ok());
+}
+
+#[test]
+fn ground_effect_with_dihedral_and_a_fin_raises_lift_near_the_ground() {
+    use tpt_aero_vlm::Surface;
+    // A dihedral wing with a fin, over a ground plane: lift grows as the
+    // ground comes closer, and stays finite at every height tried.
+    let wing = WingPlanform::tapered(10.0, 1.0, 0.7, 0.2, 5.0_f64.to_radians());
+    let fin = WingPlanform::rectangular(1.2, 0.8);
+    let surfaces = [
+        Surface::horizontal(wing, 16, 4).at(0.0, 0.0, 0.0),
+        Surface::vertical(fin, 4, 2).at(4.0, 0.0, 0.0),
+    ];
+    let model = VlmModel::from_surfaces(&surfaces).expect("valid aircraft");
+    let a = 3.0_f64.to_radians();
+    let cl_at = |h: f64| {
+        model
+            .clone()
+            .with_ground_height(h)
+            .solve(a, 40.0, 1.225, &[])
+            .expect("solves")
+            .cl
+    };
+    let (far, mid, near) = (cl_at(50.0), cl_at(4.0), cl_at(1.5));
+    assert!(far.is_finite() && mid.is_finite() && near.is_finite());
+    assert!(
+        near > mid && mid > far,
+        "CL {far} (50 m) < {mid} (4 m) < {near} (1.5 m) expected"
+    );
+    // The fin is built symmetric about the body axis (its span is ±0.6 m in z),
+    // so its lower half reaches z = −0.6 m. A ground plane at z = −0.5 m therefore
+    // intersects the geometry, and the clearance check must refuse it. This is the
+    // symmetric-fin item in todo.md; a one-sided fin would pass.
+    assert_eq!(
+        model
+            .clone()
+            .with_ground_height(0.5)
+            .solve(a, 40.0, 1.225, &[])
+            .unwrap_err(),
+        tpt_aero_vlm::VlmError::InvalidGroundHeight
+    );
+}

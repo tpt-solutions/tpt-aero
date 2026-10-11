@@ -162,9 +162,6 @@ pub struct LateralPlant {
     pub a: [[f64; 4]; 4],
 }
 
-/// Standard gravity (m/s^2).
-const GRAVITY: f64 = 9.80665;
-
 impl LateralPlant {
     /// Assemble the plant from derivatives and mass properties. Returns
     /// `None` for non-positive speed, span, area, density, mass or inertias,
@@ -210,7 +207,7 @@ impl LateralPlant {
                 side * d.cy_beta,
                 side * d.cy_p * rate,
                 side * d.cy_r * rate - 1.0,
-                GRAVITY / p.v_inf,
+                crate::STANDARD_GRAVITY / p.v_inf,
             ],
             [col_b[0], col_p[0], col_r[0], 0.0],
             [col_b[1], col_p[1], col_r[1], 0.0],

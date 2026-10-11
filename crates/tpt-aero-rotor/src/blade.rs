@@ -16,6 +16,9 @@ pub enum RotorError {
     NotConverged,
     /// The section model returned a non-physical lift coefficient.
     InvalidSection,
+    /// Non-finite or out-of-range operating condition (shaft speed, density,
+    /// axial speed or collective).
+    InvalidOperatingCondition,
 }
 
 impl core::fmt::Display for RotorError {
@@ -29,11 +32,21 @@ impl core::fmt::Display for RotorError {
             }
             RotorError::NotConverged => write!(f, "BEMT induction iteration did not converge"),
             RotorError::InvalidSection => write!(f, "section lift coefficient out of range"),
+            RotorError::InvalidOperatingCondition => {
+                write!(
+                    f,
+                    "operating condition must be finite, with ω > 0 and ρ > 0"
+                )
+            }
         }
     }
 }
 
 impl core::error::Error for RotorError {}
+
+/// Innermost span fraction used by [`RotorGeometry::rectangular`] when the hub
+/// radius is zero.
+const MIN_STATION_FRAC: f64 = 1.0e-3;
 
 /// One blade station: chord and geometric twist at a span fraction.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,7 +128,9 @@ impl RotorGeometry {
     /// [`RotorError::InvalidGeometry`] on out-of-range radii, chords, or
     /// non-ascending sections.
     pub fn validate(&self) -> Result<(), RotorError> {
-        if !(self.tip_radius > 0.0
+        // The comparisons are written so that NaN fails them.
+        if !(self.tip_radius.is_finite()
+            && self.tip_radius > 0.0
             && self.hub_radius >= 0.0
             && self.hub_radius < self.tip_radius
             && self.blades >= 1)
@@ -125,17 +140,25 @@ impl RotorGeometry {
         if self.sections.len() < 2 {
             return Err(RotorError::InvalidGeometry);
         }
-        if let Some(w) = self
+        if self
             .sections
             .windows(2)
-            .find(|w| w[1].r_frac <= w[0].r_frac)
+            .any(|w| w[1].r_frac.is_nan() || w[1].r_frac <= w[0].r_frac)
         {
-            let _ = w;
             return Err(RotorError::InvalidGeometry);
         }
-        if self.sections.iter().any(|s| {
-            !(s.chord > 0.0 && s.chord.is_finite()) || !(s.r_frac > 0.0 && s.r_frac <= 1.0)
-        }) {
+        // A station inside the hub cutout would integrate a negative span.
+        let r_hub_frac = self.hub_radius / self.tip_radius;
+        let station_ok = |s: &BladeSection| {
+            s.chord.is_finite()
+                && s.chord > 0.0
+                && s.twist.is_finite()
+                && s.r_frac.is_finite()
+                && s.r_frac > 0.0
+                && s.r_frac <= 1.0
+                && s.r_frac >= r_hub_frac
+        };
+        if !self.sections.iter().all(station_ok) {
             return Err(RotorError::InvalidGeometry);
         }
         Ok(())
@@ -152,7 +175,11 @@ impl RotorGeometry {
         n: usize,
     ) -> Self {
         let n = n.max(2);
-        let r0 = hub_radius / tip_radius;
+        // A zero hub would put the first station at r = 0, which `validate`
+        // rejects (the induced velocity and solidity are singular there). Start
+        // the stations at a small positive fraction instead; the annulus inside
+        // it carries negligible thrust.
+        let r0 = (hub_radius / tip_radius).max(MIN_STATION_FRAC);
         let sections = (0..n)
             .map(|i| {
                 let t = i as f64 / (n - 1) as f64;

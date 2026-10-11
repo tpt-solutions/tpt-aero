@@ -118,7 +118,7 @@ tpt-aero trim aircraft.toml --speed 50 --bank 20   # coordinated turn trim
 ## Status
 
 Pre-release (v0.1.0 pending): see [CHANGELOG.md](CHANGELOG.md) for what changed
-and [todo.md](todo.md) for the open items. MSRV 1.84.
+and [todo.md](todo.md) for the open items. MSRV 1.85.
 
 ## Contributing
 

@@ -63,9 +63,10 @@
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Unit-safe quantities, coefficients, airfoil polars, geometry.
+/// Unit-safe quantities, coefficients, airfoil polars, geometry. Named
+/// `aero_core` so it does not shadow the standard `core` crate in user code.
 #[cfg(feature = "core")]
-pub use tpt_aero_core as core;
+pub use tpt_aero_core as aero_core;
 
 /// Vortex Lattice Method.
 #[cfg(feature = "vlm")]
@@ -107,6 +108,8 @@ pub use tpt_aero_vlm::{CamberModel, VlmModel, VlmSolution};
 pub mod prelude {
     #[cfg(feature = "atmo")]
     pub use tpt_aero_atmo::{isa, IsaState};
+    #[cfg(feature = "atmo")]
+    pub use tpt_aero_atmo::{DiscreteGust, GustShape};
     #[cfg(feature = "core")]
     pub use tpt_aero_core::{
         airfoil::{naca4, naca4_closed},
@@ -114,17 +117,25 @@ pub mod prelude {
         WingSection,
     };
     #[cfg(feature = "panel")]
+    pub use tpt_aero_panel::SourceSolution;
+    #[cfg(feature = "panel")]
     pub use tpt_aero_panel::{compress, solve_source_panels};
     #[cfg(feature = "rotor")]
-    pub use tpt_aero_rotor::{BemtSolver, OperatingCondition, RotorGeometry};
+    pub use tpt_aero_rotor::{
+        BemtSolution, BemtSolver, OperatingCondition, RotorGeometry, RotorLoads,
+    };
     #[cfg(feature = "stability")]
     pub use tpt_aero_stability::{
         controls::{control_derivatives, ControlDerivatives},
         lateral::{lateral_fd, LateralDerivatives, LateralParameters, LateralPlant},
         longitudinal::{longitudinal_fd, LongitudinalDerivatives},
+        modes::{eigenvalues4, Complex},
         phugoid::{drag_alpha_fd, FullLongitudinalParameters, FullLongitudinalPlant},
         plant::{LongitudinalPlant, PlantParameters},
+        sim::StateSpace,
+        sixdof::{self, SixDofConfig},
         trim::{trim_level_flight, TrimRequest},
+        turn::{trim_steady_turn, TurnRequest, TurnTrim},
     };
     #[cfg(feature = "vlm")]
     pub use tpt_aero_vlm::{

@@ -57,6 +57,7 @@ pub(crate) fn signed_area2(points: &[Point2]) -> f64 {
 
 /// Result of a source-panel analysis.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceSolution {
     /// Source strengths per panel.
     pub strengths: Vec<f64>,

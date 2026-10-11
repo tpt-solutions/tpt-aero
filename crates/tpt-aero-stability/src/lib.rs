@@ -41,6 +41,9 @@
 
 extern crate alloc;
 
+/// Standard gravity (m/s²). The single definition used across the crate.
+pub const STANDARD_GRAVITY: f64 = 9.806_65;
+
 pub mod controls;
 pub mod lateral;
 pub mod longitudinal;

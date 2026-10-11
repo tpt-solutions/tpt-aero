@@ -269,6 +269,11 @@ impl Lattice {
         if n_span == 0 || n_chord == 0 {
             return Err(LatticeError::InvalidResolution);
         }
+        // Every planform segment needs at least one spanwise strip, so that
+        // kinks stay on strip edges.
+        if n_span < planform.sections().len() - 1 {
+            return Err(LatticeError::InvalidResolution);
+        }
         if let CamberModel::Naca4 { m, p } = camber {
             let p_ok = m == 0.0 || (p > 0.0 && p < 1.0);
             if !(m.is_finite() && p.is_finite() && p_ok) {

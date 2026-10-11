@@ -29,13 +29,17 @@
 extern crate alloc;
 
 pub mod aircraft;
+pub mod avl;
 pub mod export;
 pub mod lattice;
+pub mod optimize;
 pub mod solver;
 pub mod vortex;
 
 pub use aircraft::{Control, ControlRegion, ControlSymmetry, Surface};
+pub use avl::{parse as parse_avl, AvlDeck, AvlError};
 pub use lattice::{CamberModel, Lattice, LatticeElement, LatticeError, SpanSpacing};
+pub use optimize::{optimize_linear_twist, TwistOptimum};
 pub use solver::{
     FlightState, PreparedVlm, ReferenceGeometry, StateLoads, VlmError, VlmModel, VlmSolution,
     VlmSolutionFields, WakeModel,

@@ -66,6 +66,13 @@ pub(crate) fn ring_velocity(a: f64, z0: f64, z: f64, r: f64) -> (f64, f64) {
     let zeta = z - z0;
     let d = (a + r) * (a + r) + zeta * zeta;
     let q = (a - r) * (a - r) + zeta * zeta;
+    // The point lies on this ring's filament (only reachable when a quadrature
+    // node hits the field point exactly, e.g. r = R at the disk plane). The
+    // filament's self-induced velocity is singular there, so this node
+    // contributes nothing; the neighbouring nodes carry the integral.
+    if q <= f64::MIN_POSITIVE {
+        return (0.0, 0.0);
+    }
     let k = (4.0 * a * r / d).sqrt();
     let kp = (q / d).sqrt();
     let (kk, ee) = elliptic_ke(k, kp);
@@ -378,5 +385,22 @@ mod tests {
         assert!(CylinderWake::new(0.0, 1.0, 0.0, 1.2).is_err());
         assert!(CylinderWake::new(1.0, 1.0, -1.0, 1.2).is_err());
         assert!(CylinderWake::new(1.0, f64::NAN, 0.0, 1.2).is_err());
+    }
+}
+
+#[cfg(test)]
+mod wall_tests {
+    use super::*;
+
+    #[test]
+    fn field_on_the_wake_edge_is_finite() {
+        // r = R at the disk plane used to hit a quadrature node exactly on the
+        // ring and return NaN.
+        let w = CylinderWake::new(1.0, 5.0, 10.0, 1.225).expect("valid");
+        for z in [0.0, 0.5, 2.0] {
+            let (uz, ur) = w.induced(z, 1.0);
+            assert!(uz.is_finite() && ur.is_finite(), "z = {z}: ({uz}, {ur})");
+            assert!(w.dynamic_pressure_increment(z, 1.0).is_finite());
+        }
     }
 }

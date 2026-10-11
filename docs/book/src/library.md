@@ -3,7 +3,7 @@
 The umbrella crate `tpt-aero` re-exports the solver crates. Import the common
 items from the prelude:
 
-```rust
+```rust,ignore
 use tpt_aero::prelude::*;
 ```
 

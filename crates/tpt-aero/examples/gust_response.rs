@@ -7,8 +7,8 @@
 //!
 //! Run: `cargo run --example gust_response`
 
+use tpt_aero::aero_core::WingSection;
 use tpt_aero::atmo::{DiscreteGust, GustShape, TurbulenceField, TurbulenceModel, WhiteNoise};
-use tpt_aero::core::WingSection;
 use tpt_aero::prelude::*;
 use tpt_aero::stability::sim::simulate;
 

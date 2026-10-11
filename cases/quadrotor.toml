@@ -1,0 +1,24 @@
+# tpt-aero quadrotor propeller case: 0.12 m rotor in hover. Run: tpt-aero rotor quadrotor.toml
+[rotor]
+radius = 0.12        # m
+hub_radius = 0.01    # m
+blades = 2
+chord = 0.02         # m, root
+chord_tip_ratio = 0.6
+stations = 16
+root_twist_deg = 28.0
+tip_twist_deg = 10.0
+tip_loss = true
+hub_loss = false
+
+[section]
+cl_slope = 6.283
+cl_max = 1.2
+cd0 = 0.012
+cd_cl2 = 0.012
+
+[operating]
+rpm = 6000.0
+speed = 0.0          # hover
+altitude = 0.0
+collective_deg = 0.0

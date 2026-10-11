@@ -8,9 +8,7 @@
 
 use crate::longitudinal::LongitudinalDerivatives;
 
-/// Standard gravity (m/s²).
-const STANDARD_GRAVITY: f64 = 9.80665;
-
+use crate::STANDARD_GRAVITY;
 #[allow(unused_imports)]
 use tpt_aero_core::Real as _;
 
@@ -42,8 +40,64 @@ pub struct PlantParameters {
     pub density: f64,
 }
 
+/// Errors from validating a derivative-based plant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlantError {
+    /// A dimensional parameter is non-finite or not strictly positive.
+    InvalidParameter,
+    /// A derivative or drag slope is non-finite.
+    InvalidDerivative,
+}
+
+impl core::fmt::Display for PlantError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            PlantError::InvalidParameter => {
+                write!(f, "plant parameters must be finite and positive")
+            }
+            PlantError::InvalidDerivative => write!(f, "plant derivatives must be finite"),
+        }
+    }
+}
+
+impl core::error::Error for PlantError {}
+
 impl LongitudinalPlant {
+    /// As [`LongitudinalPlant::from_derivatives`], but rejects bad inputs
+    /// instead of propagating NaN into the dynamics matrix.
+    ///
+    /// # Errors
+    /// [`PlantError::InvalidParameter`] unless every field of `p` is finite
+    /// and positive; [`PlantError::InvalidDerivative`] if any derivative or
+    /// `drag_slope_u` is non-finite.
+    pub fn try_from_derivatives(
+        d: &LongitudinalDerivatives,
+        p: &PlantParameters,
+        drag_slope_u: f64,
+    ) -> Result<Self, PlantError> {
+        let params = [p.v_inf, p.chord, p.area, p.mass, p.inertia_y, p.density];
+        if !params.iter().all(|v| v.is_finite() && *v > 0.0) {
+            return Err(PlantError::InvalidParameter);
+        }
+        let derivs = [
+            d.cl_alpha,
+            d.cm_alpha,
+            d.cl_q,
+            d.cm_q,
+            d.cl_delta,
+            d.cm_delta,
+            drag_slope_u,
+        ];
+        if !derivs.iter().all(|v| v.is_finite()) {
+            return Err(PlantError::InvalidDerivative);
+        }
+        Ok(Self::from_derivatives(d, p, drag_slope_u))
+    }
+
     /// Assemble the classical derivative-based longitudinal plant.
+    ///
+    /// No validation is done here; use [`LongitudinalPlant::try_from_derivatives`]
+    /// for checked inputs.
     ///
     /// Small-disturbance rigid-body dynamics about level, steady flight
     /// (`γ₀ = 0`, `θ₀ = α₀`), in wind axes with state `[Δu, Δα, q, Δθ]`:
@@ -95,7 +149,9 @@ impl LongitudinalPlant {
     ///
     /// Returns `None` when the subsystem has no oscillatory/stable-pair
     /// mapping, i.e. `det ≤ 0`: the airframe is statically unstable (a real
-    /// positive root), so `ω_n` and `ζ` are undefined.
+    /// positive root), so `ω_n` and `ζ` are undefined. The roots themselves
+    /// remain available from the `eigenvalues` method of the plant's
+    /// `state_space` form.
     #[must_use]
     pub fn short_period(&self) -> Option<(f64, f64)> {
         let (a22, a23, a32, a33) = (self.a[1][1], self.a[1][2], self.a[2][1], self.a[2][2]);
@@ -220,5 +276,57 @@ mod tests {
         };
         let plant = LongitudinalPlant::from_derivatives(&d, &p, 0.0);
         assert!(plant.short_period().is_none());
+    }
+}
+
+#[cfg(test)]
+mod checked_tests {
+    use super::*;
+
+    fn derivs() -> LongitudinalDerivatives {
+        LongitudinalDerivatives {
+            cl_alpha: 5.0,
+            cm_alpha: -1.0,
+            cl_q: 3.0,
+            cm_q: -10.0,
+            cl_delta: 0.5,
+            cm_delta: -1.0,
+        }
+    }
+
+    fn params() -> PlantParameters {
+        PlantParameters {
+            v_inf: 50.0,
+            chord: 1.0,
+            area: 10.0,
+            mass: 500.0,
+            inertia_y: 400.0,
+            density: 1.225,
+        }
+    }
+
+    #[test]
+    fn checked_constructor_matches_the_unchecked_one() {
+        let a = LongitudinalPlant::try_from_derivatives(&derivs(), &params(), 0.0).expect("valid");
+        let b = LongitudinalPlant::from_derivatives(&derivs(), &params(), 0.0);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn checked_constructor_rejects_bad_inputs() {
+        let zero_speed = PlantParameters {
+            v_inf: 0.0,
+            ..params()
+        };
+        assert_eq!(
+            LongitudinalPlant::try_from_derivatives(&derivs(), &zero_speed, 0.0),
+            Err(PlantError::InvalidParameter)
+        );
+        let mut nan = derivs();
+        nan.cm_q = f64::NAN;
+        assert_eq!(
+            LongitudinalPlant::try_from_derivatives(&nan, &params(), 0.0),
+            Err(PlantError::InvalidDerivative)
+        );
     }
 }

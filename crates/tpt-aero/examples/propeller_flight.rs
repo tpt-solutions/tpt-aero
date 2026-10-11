@@ -19,8 +19,8 @@
 //!
 //! Run with `cargo run --release -p tpt-aero --example propeller_flight`.
 
-use tpt_aero::core::viscous::{cd0_buildup, DragComponent};
-use tpt_aero::core::{Vec3, WingPlanform, WingSection};
+use tpt_aero::aero_core::viscous::{cd0_buildup, DragComponent};
+use tpt_aero::aero_core::{Vec3, WingPlanform, WingSection};
 use tpt_aero::panel::SlenderBody;
 use tpt_aero::rotor::{
     BemtSolver, CylinderWake, HubLoss, OperatingCondition, RotorGeometry, SectionModel, Slipstream,
@@ -258,6 +258,8 @@ fn main() {
         elevator: "elevator",
         aileron: "aileron",
         rudder: "rudder",
+        wind_ned: [0.0, 0.0, 0.0],
+        thrust_body_fixed: false,
     };
     let (sa, ca) = trim.alpha_rad.sin_cos();
     let x0 = State {

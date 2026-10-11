@@ -23,7 +23,6 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use tpt_aero_core::linalg::lu_solve;
 use tpt_aero_vlm::{FlightState, PreparedVlm, VlmError, VlmModel};
 
 use crate::turn::G;
@@ -67,6 +66,12 @@ pub struct SixDofConfig<'a> {
     pub aileron: &'a str,
     /// Yaw control name.
     pub rudder: &'a str,
+    /// Steady wind of the air mass, in north–east–down axes (m/s). The zero
+    /// vector is still air. Airspeed, α and β are taken relative to the air.
+    pub wind_ned: [f64; 3],
+    /// Thrust along the body x axis (`true`) rather than along the air-relative
+    /// velocity (`false`, the default). Use `true` for a propeller on the nose.
+    pub thrust_body_fixed: bool,
 }
 
 /// Control deflections (rad), VLM sign convention (see
@@ -162,6 +167,9 @@ pub enum SixDofError {
     NoSuchControl,
     /// The airspeed is zero or the state is not finite.
     InvalidState,
+    /// The pitch angle is within about 0.06° of ±90°, where the Euler-angle
+    /// kinematics are singular. Stop the run or switch to quaternions.
+    GimbalLock,
     /// The VLM solve failed.
     Vlm(VlmError),
 }
@@ -174,6 +182,7 @@ impl core::fmt::Display for SixDofError {
             }
             Self::NoSuchControl => write!(f, "model has no control with a configured name"),
             Self::InvalidState => write!(f, "airspeed must be positive and the state finite"),
+            Self::GimbalLock => write!(f, "pitch is near ±90°: Euler angles are singular"),
             Self::Vlm(e) => write!(f, "VLM solve failed: {e}"),
         }
     }
@@ -185,6 +194,28 @@ impl From<VlmError> for SixDofError {
     fn from(e: VlmError) -> Self {
         Self::Vlm(e)
     }
+}
+
+/// A north–east–down vector expressed in body axes, for a ZYX (yaw, pitch,
+/// roll) attitude `(phi, theta, psi)`: `v_b = R(φ,θ,ψ) · v_ned`.
+fn ned_to_body(v: &[f64; 3], phi: f64, theta: f64, psi: f64) -> [f64; 3] {
+    let (sph, cph) = phi.sin_cos();
+    let (sth, cth) = theta.sin_cos();
+    let (sps, cps) = psi.sin_cos();
+    let r = [
+        [cth * cps, cth * sps, -sth],
+        [
+            sph * sth * cps - cph * sps,
+            sph * sth * sps + cph * cps,
+            sph * cth,
+        ],
+        [
+            cph * sth * cps + sph * sps,
+            cph * sth * sps - sph * cps,
+            cph * cth,
+        ],
+    ];
+    core::array::from_fn(|i| r[i][0] * v[0] + r[i][1] * v[1] + r[i][2] * v[2])
 }
 
 /// Aircraft-axis dynamics with a prepared VLM, rebuilt when controls change.
@@ -199,6 +230,28 @@ struct Aero<'m> {
     key: Option<Controls>,
     prepared: Option<PreparedVlm<'m>>,
     q_s: f64,
+    /// Inverse of the inertia tensor, computed once from the body properties.
+    inv_inertia: [[f64; 3]; 3],
+    /// Steady wind (NED, m/s).
+    wind_ned: [f64; 3],
+    /// Thrust along body x rather than the relative wind.
+    thrust_body_fixed: bool,
+}
+
+/// Pitch cosine below which the Euler-angle kinematics are refused (about
+/// 0.06° from the gimbal-lock attitude).
+const GIMBAL_COS_MIN: f64 = 1.0e-3;
+
+/// Inverse of `I = [[Ixx, 0, −Ixz], [0, Iyy, 0], [−Ixz, 0, Izz]]`, in closed
+/// form. Requires `Ixx·Izz > Ixz²` (checked by the caller).
+fn inverse_inertia(b: &RigidBody) -> [[f64; 3]; 3] {
+    let (a, bb, c, d) = (b.ixx, b.iyy, b.ixz, b.izz);
+    let det_xz = a * d - c * c;
+    [
+        [d / det_xz, 0.0, c / det_xz],
+        [0.0, 1.0 / bb, 0.0],
+        [c / det_xz, 0.0, a / det_xz],
+    ]
 }
 
 impl<'m> Aero<'m> {
@@ -214,6 +267,11 @@ impl<'m> Aero<'m> {
             && cfg.parasite_cd >= 0.0
             && b.ixz.is_finite())
         {
+            return Err(SixDofError::InvalidConfig);
+        }
+        // Positive definite inertia needs Ixx·Izz > Ixz² (the determinant of
+        // the x–z block). Without it the inverse does not exist.
+        if b.ixx * b.izz <= b.ixz * b.ixz {
             return Err(SixDofError::InvalidConfig);
         }
         Ok(Self {
@@ -233,6 +291,9 @@ impl<'m> Aero<'m> {
             key: None,
             prepared: None,
             q_s: 0.0,
+            inv_inertia: inverse_inertia(&b),
+            wind_ned: cfg.wind_ned,
+            thrust_body_fixed: cfg.thrust_body_fixed,
         })
     }
 
@@ -259,12 +320,16 @@ impl<'m> Aero<'m> {
         extra: ExtraLoads,
     ) -> Result<[f64; 12], SixDofError> {
         let s = State::from_array(*x);
-        let v_air = s.airspeed();
+        // Air-relative body velocity: the aircraft velocity minus the wind,
+        // which is given in NED and rotated into body axes (ZYX Euler).
+        let wind_b = ned_to_body(&self.wind_ned, s.phi, s.theta, s.psi);
+        let (u_r, v_r, w_r) = (s.u - wind_b[0], s.v - wind_b[1], s.w - wind_b[2]);
+        let v_air = (u_r * u_r + v_r * v_r + w_r * w_r).sqrt();
         if !(v_air.is_finite() && v_air > 0.0 && x.iter().all(|a| a.is_finite())) {
             return Err(SixDofError::InvalidState);
         }
-        let alpha = s.w.atan2(s.u);
-        let beta = (s.v / v_air).clamp(-1.0, 1.0).asin();
+        let alpha = w_r.atan2(u_r);
+        let beta = (v_r / v_air).clamp(-1.0, 1.0).asin();
         let (sa, ca) = alpha.sin_cos();
         let q_dyn = 0.5 * self.density * v_air * v_air;
         self.q_s = q_dyn * self.model.reference().area;
@@ -291,12 +356,18 @@ impl<'m> Aero<'m> {
         let [mx, my, mz] = loads.moment_nm;
         let mass = self.body.mass;
         let drag_cd0 = self.parasite_cd * self.q_s;
-        let (ux, uy, uz) = (s.u / v_air, s.v / v_air, s.w / v_air);
-        // Parasite drag and thrust both act along the airspeed vector.
+        // Parasite drag acts along the air-relative velocity. Thrust acts along
+        // that velocity too, unless the configuration fixes it to body x.
+        let (ux, uy, uz) = (u_r / v_air, v_r / v_air, w_r / v_air);
+        let (tx, ty, tz) = if self.thrust_body_fixed {
+            (1.0, 0.0, 0.0)
+        } else {
+            (ux, uy, uz)
+        };
         let force = [
-            -fx - drag_cd0 * ux + thrust * ux,
-            fy - drag_cd0 * uy + thrust * uy,
-            -fz - drag_cd0 * uz + thrust * uz,
+            -fx - drag_cd0 * ux + thrust * tx,
+            fy - drag_cd0 * uy + thrust * ty,
+            -fz - drag_cd0 * uz + thrust * tz,
         ];
         let moment = [-mx, my, -mz];
         // Additive loads (fuselage, propeller reaction, ...), aircraft axes.
@@ -306,6 +377,9 @@ impl<'m> Aero<'m> {
         // Gravity in body axes.
         let (sphi, cphi) = s.phi.sin_cos();
         let (sth, cth) = s.theta.sin_cos();
+        if cth.abs() < GIMBAL_COS_MIN {
+            return Err(SixDofError::GimbalLock);
+        }
         let grav = [-G * sth, G * cth * sphi, G * cth * cphi];
 
         let du = s.r * s.v - s.q * s.w + force[0] / mass + grav[0];
@@ -330,9 +404,10 @@ impl<'m> Aero<'m> {
             omega[2] * i_omega[0] - omega[0] * i_omega[2],
             omega[0] * i_omega[1] - omega[1] * i_omega[0],
         ];
-        let rhs: Vec<f64> = (0..3).map(|i| moment[i] - gyro[i]).collect();
-        let mat: Vec<Vec<f64>> = inertia.iter().map(|row| row.to_vec()).collect();
-        let omega_dot = lu_solve(&mat, &rhs).map_err(|_| SixDofError::InvalidConfig)?;
+        let rhs: [f64; 3] = core::array::from_fn(|i| moment[i] - gyro[i]);
+        let inv = &self.inv_inertia;
+        let omega_dot: [f64; 3] =
+            core::array::from_fn(|i| (0..3).map(|j| inv[i][j] * rhs[j]).sum());
 
         // Euler kinematics (ZYX).
         let tan_th = sth / cth;
@@ -409,13 +484,42 @@ pub fn simulate_with_loads(
     thrust: &dyn Fn(f64, &State) -> f64,
     extra: &dyn Fn(f64, &State) -> ExtraLoads,
 ) -> Result<Vec<(f64, State)>, SixDofError> {
-    if !(dt.is_finite() && dt > 0.0) {
-        return Err(SixDofError::InvalidState);
+    let (history, error) = simulate_partial(model, cfg, x0, dt, steps, controls, thrust, extra);
+    match error {
+        None => Ok(history),
+        Some(e) => Err(e),
     }
-    let mut aero = Aero::new(model, cfg)?;
-    let mut x = x0.to_array();
-    let mut history = Vec::with_capacity(steps + 1);
+}
+
+/// As [`simulate_with_loads`], but never discards the run: it returns every
+/// sample computed before a failure, with the error alongside. The history
+/// always starts with the initial state at `t = 0`. A run that stops early
+/// (for example at [`SixDofError::GimbalLock`]) therefore keeps its useful part.
+///
+/// # Panics
+/// Never. Invalid inputs are reported in the second element.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_partial(
+    model: &VlmModel,
+    cfg: &SixDofConfig<'_>,
+    x0: State,
+    dt: f64,
+    steps: usize,
+    controls: &dyn Fn(f64) -> Controls,
+    thrust: &dyn Fn(f64, &State) -> f64,
+    extra: &dyn Fn(f64, &State) -> ExtraLoads,
+) -> (Vec<(f64, State)>, Option<SixDofError>) {
+    // Do not trust `steps` for the allocation; the vector grows as needed.
+    let mut history = Vec::with_capacity((steps + 1).min(1 << 16));
     history.push((0.0, x0));
+    if !(dt.is_finite() && dt > 0.0) {
+        return (history, Some(SixDofError::InvalidState));
+    }
+    let mut aero = match Aero::new(model, cfg) {
+        Ok(a) => a,
+        Err(e) => return (history, Some(e)),
+    };
+    let mut x = x0.to_array();
     for step in 0..steps {
         let t = step as f64 * dt;
         let mut stage = |xs: &[f64; 12], ts: f64| -> Result<[f64; 12], SixDofError> {
@@ -424,15 +528,46 @@ pub fn simulate_with_loads(
             let ex = extra(ts, &State::from_array(*xs));
             aero.derivative(xs, c, th, ex)
         };
-        let k1 = stage(&x, t)?;
-        let x2: [f64; 12] = core::array::from_fn(|i| x[i] + 0.5 * dt * k1[i]);
-        let k2 = stage(&x2, t + 0.5 * dt)?;
-        let x3: [f64; 12] = core::array::from_fn(|i| x[i] + 0.5 * dt * k2[i]);
-        let k3 = stage(&x3, t + 0.5 * dt)?;
-        let x4: [f64; 12] = core::array::from_fn(|i| x[i] + dt * k3[i]);
-        let k4 = stage(&x4, t + dt)?;
-        x = core::array::from_fn(|i| x[i] + dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]));
-        history.push(((step + 1) as f64 * dt, State::from_array(x)));
+        let stepped = (|| -> Result<[f64; 12], SixDofError> {
+            let k1 = stage(&x, t)?;
+            let x2: [f64; 12] = core::array::from_fn(|i| x[i] + 0.5 * dt * k1[i]);
+            let k2 = stage(&x2, t + 0.5 * dt)?;
+            let x3: [f64; 12] = core::array::from_fn(|i| x[i] + 0.5 * dt * k2[i]);
+            let k3 = stage(&x3, t + 0.5 * dt)?;
+            let x4: [f64; 12] = core::array::from_fn(|i| x[i] + dt * k3[i]);
+            let k4 = stage(&x4, t + dt)?;
+            Ok(core::array::from_fn(|i| {
+                x[i] + dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i])
+            }))
+        })();
+        match stepped {
+            Ok(next) => {
+                x = next;
+                history.push(((step + 1) as f64 * dt, State::from_array(x)));
+            }
+            Err(e) => return (history, Some(e)),
+        }
     }
-    Ok(history)
+    (history, None)
+}
+
+#[cfg(test)]
+mod wind_tests {
+    use super::ned_to_body;
+
+    #[test]
+    fn level_flight_maps_north_to_forward_and_heading_changes_it() {
+        let north = [10.0, 0.0, 0.0];
+        let level = ned_to_body(&north, 0.0, 0.0, 0.0);
+        assert!((level[0] - 10.0).abs() < 1e-12 && level[1].abs() < 1e-12);
+        // Heading east (ψ = 90°): north lies on the aircraft's left, i.e. −y.
+        let east = ned_to_body(&north, 0.0, 0.0, core::f64::consts::FRAC_PI_2);
+        assert!(
+            east[0].abs() < 1e-12 && (east[1] + 10.0).abs() < 1e-12,
+            "{east:?}"
+        );
+        // Down (+z in NED) is +z in body at level attitude.
+        let down = ned_to_body(&[0.0, 0.0, 3.0], 0.0, 0.0, 0.0);
+        assert!((down[2] - 3.0).abs() < 1e-12);
+    }
 }

@@ -10,6 +10,8 @@ members = [
     "crates/tpt-aero-verify",
     "crates/tpt-aero",
     "crates/tpt-aero-cli",
+    "crates/tpt-aero-wasm",
+    "crates/tpt-aero-py",
 ]
 exclude = []
 
@@ -17,7 +19,7 @@ exclude = []
 description = "tpt-aero — pure-Rust analytical aerodynamics and flight mechanics (VLM, panel methods, BEMT, atmosphere, stability derivatives)"
 authors = ["TPT Solutions"]
 edition = "2021"
-rust-version = "1.84"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/tpt-solutions/tpt-aero"
 repository = "https://github.com/tpt-solutions/tpt-aero"

@@ -353,24 +353,82 @@ impl WingPlanform {
     #[must_use]
     pub fn refine(&self, n: usize) -> Self {
         assert!(n >= 2, "refine needs at least 2 stations");
-        let mut out = Vec::with_capacity(n);
-        let last = self.sections.len() - 1;
-        for i in 0..n {
-            let t = i as f64 / (n - 1) as f64;
-            let s = t * (last as f64);
-            let i0 = (s as usize).min(last - 1);
-            let f = s - i0 as f64;
-            let (a, b) = (&self.sections[i0], &self.sections[i0 + 1]);
-            out.push(WingSection {
-                le: Vec3::new(
-                    a.le.x + f * (b.le.x - a.le.x),
-                    a.le.y + f * (b.le.y - a.le.y),
-                    a.le.z + f * (b.le.z - a.le.z),
-                ),
-                chord: a.chord + f * (b.chord - a.chord),
-                twist: a.twist + f * (b.twist - a.twist),
-            });
+        let m = self.sections.len();
+        // Every original section is kept as a station, so kinks (breaks in
+        // chord, sweep or dihedral) always fall on a strip edge and the planform
+        // area is preserved. The n - 1 strip intervals are shared out across the
+        // original segments in proportion to their span (largest remainder).
+        if n < m {
+            return self.clone();
         }
+        let segments = m - 1;
+        let total_dy = self.sections[m - 1].le.y - self.sections[0].le.y;
+        let budget = (n - 1) as f64;
+        let ideal: Vec<f64> = (0..segments)
+            .map(|i| {
+                let dy = self.sections[i + 1].le.y - self.sections[i].le.y;
+                if total_dy.abs() < f64::MIN_POSITIVE {
+                    budget / segments as f64
+                } else {
+                    budget * dy.abs() / total_dy.abs()
+                }
+            })
+            .collect();
+        // The ideals are non-negative, so truncation equals floor; this avoids
+        // `f64::floor`, which is not available under `no_std` without libm.
+        let mut counts: Vec<usize> = ideal.iter().map(|x| *x as usize).collect();
+        // Each segment needs at least one interval.
+        for c in counts.iter_mut() {
+            *c = (*c).max(1);
+        }
+        let mut assigned: usize = counts.iter().sum();
+        while assigned < n - 1 {
+            // Give the next interval to the segment furthest below its ideal.
+            let (best, _) = (0..segments)
+                .map(|i| (i, ideal[i] - counts[i] as f64))
+                .fold(
+                    (0, f64::NEG_INFINITY),
+                    |acc, x| if x.1 > acc.1 { x } else { acc },
+                );
+            counts[best] += 1;
+            assigned += 1;
+        }
+        while assigned > n - 1 {
+            // Take one back from the segment furthest above its ideal (keeping ≥ 1).
+            let candidate = (0..segments)
+                .filter(|&i| counts[i] > 1)
+                .map(|i| (i, counts[i] as f64 - ideal[i]))
+                .fold((usize::MAX, f64::NEG_INFINITY), |acc, x| {
+                    if x.1 > acc.1 {
+                        x
+                    } else {
+                        acc
+                    }
+                });
+            if candidate.0 == usize::MAX {
+                break;
+            }
+            counts[candidate.0] -= 1;
+            assigned -= 1;
+        }
+
+        let mut out = Vec::with_capacity(n);
+        for (i, &k) in counts.iter().enumerate() {
+            let (a, b) = (&self.sections[i], &self.sections[i + 1]);
+            for j in 0..k {
+                let f = j as f64 / k as f64;
+                out.push(WingSection {
+                    le: Vec3::new(
+                        a.le.x + f * (b.le.x - a.le.x),
+                        a.le.y + f * (b.le.y - a.le.y),
+                        a.le.z + f * (b.le.z - a.le.z),
+                    ),
+                    chord: a.chord + f * (b.chord - a.chord),
+                    twist: a.twist + f * (b.twist - a.twist),
+                });
+            }
+        }
+        out.push(self.sections[m - 1]);
         Self { sections: out }
     }
 

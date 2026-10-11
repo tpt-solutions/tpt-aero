@@ -80,6 +80,16 @@ impl AirfoilPolar {
         if n < 2 || cl.len() != n || cd.len() != n || cm.len() != n {
             return Err(PolarError::InvalidTable);
         }
+        // NaN must not reach the interpolants; Mach and Reynolds key the table.
+        let finite = alphas
+            .iter()
+            .chain(&cl)
+            .chain(&cd)
+            .chain(&cm)
+            .all(|v| v.is_finite());
+        if !(finite && mach.is_finite() && mach >= 0.0 && reynolds.is_finite() && reynolds > 0.0) {
+            return Err(PolarError::InvalidTable);
+        }
         if alphas.windows(2).any(|w| w[1] <= w[0]) {
             return Err(PolarError::NonMonotonicAlpha);
         }
@@ -189,14 +199,17 @@ impl StallModel {
     /// plateau `cl_max`/`cl_min`, preserving the sign of the raw lift.
     #[must_use]
     pub fn apply(&self, alpha: f64, cl_raw: f64) -> f64 {
-        let plateau = if cl_raw >= 0.0 {
-            self.cl_max
+        // The blend targets the plateau, but never a value larger in magnitude
+        // than the raw lift: a tabulated polar that is already below the plateau
+        // (or past it) is left alone rather than pushed up toward the plateau.
+        let target = if cl_raw >= 0.0 {
+            cl_raw.min(self.cl_max)
         } else {
-            self.cl_min
+            cl_raw.max(self.cl_min)
         };
         let t = ((alpha.abs() - self.alpha_stall) / self.width.max(1.0e-9)).clamp(0.0, 1.0);
         let s = t * t * (3.0 - 2.0 * t);
-        cl_raw + (plateau - cl_raw) * s
+        cl_raw + (target - cl_raw) * s
     }
 }
 
@@ -207,6 +220,12 @@ impl StallModel {
 #[derive(Debug, Clone, Default)]
 pub struct PolarSet {
     polars: Vec<AirfoilPolar>,
+    /// Distinct Mach numbers, ascending.
+    machs: Vec<f64>,
+    /// For each Mach value, the Reynolds numbers of its tables (ascending).
+    reynolds_at: Vec<Vec<f64>>,
+    /// For each Mach value, indices into `polars` in the same Reynolds order.
+    index_at: Vec<Vec<usize>>,
 }
 
 impl PolarSet {
@@ -230,7 +249,26 @@ impl PolarSet {
                 return Err(PolarError::InvalidTable);
             }
         }
-        Ok(Self { polars })
+        // Precompute the bracketing grid so lookups do not allocate.
+        let mut machs: Vec<f64> = Vec::new();
+        let mut reynolds_at: Vec<Vec<f64>> = Vec::new();
+        let mut index_at: Vec<Vec<usize>> = Vec::new();
+        for (i, p) in polars.iter().enumerate() {
+            if machs.last() != Some(&p.mach()) {
+                machs.push(p.mach());
+                reynolds_at.push(Vec::new());
+                index_at.push(Vec::new());
+            }
+            let g = machs.len() - 1;
+            reynolds_at[g].push(p.reynolds());
+            index_at[g].push(i);
+        }
+        Ok(Self {
+            polars,
+            machs,
+            reynolds_at,
+            index_at,
+        })
     }
 
     /// Number of tabulated (Mach, Re) stations.
@@ -245,34 +283,21 @@ impl PolarSet {
         self.polars.is_empty()
     }
 
-    /// Weighted blend over the up-to-four bracketing (Mach, Re) tables.
+    /// Weighted blend over the up-to-four bracketing (Mach, Re) tables. NaN
+    /// for an empty set (the constructor refuses one).
     fn blend<F>(&self, mach: f64, reynolds: f64, eval: F) -> f64
     where
         F: Fn(&AirfoilPolar) -> f64,
     {
-        // Bracket mach among distinct mach values.
-        let machs: Vec<f64> = {
-            let mut m = Vec::new();
-            for p in &self.polars {
-                if m.last() != Some(&p.mach()) {
-                    m.push(p.mach());
-                }
-            }
-            m
-        };
-        let (m0, m1, wm) = bracket(&machs, mach);
-
+        if self.machs.is_empty() {
+            return f64::NAN;
+        }
+        let (m0, m1, wm) = bracket(&self.machs, mach);
         let section = |mach_idx: usize| -> f64 {
-            let at_mach: Vec<&AirfoilPolar> = self
-                .polars
-                .iter()
-                .filter(|p| p.mach() == machs[mach_idx])
-                .collect();
-            let res: Vec<f64> = at_mach.iter().map(|p| p.reynolds()).collect();
-            let (r0, r1, wr) = bracket(&res, reynolds);
-            eval(at_mach[r0]) * (1.0 - wr) + eval(at_mach[r1]) * wr
+            let (r0, r1, wr) = bracket(&self.reynolds_at[mach_idx], reynolds);
+            let idx = &self.index_at[mach_idx];
+            eval(&self.polars[idx[r0]]) * (1.0 - wr) + eval(&self.polars[idx[r1]]) * wr
         };
-
         if m0 == m1 {
             section(m0)
         } else {
@@ -379,5 +404,64 @@ mod tests {
             PolarSet::new(vec![flat_polar(4.0, 0.0, 1e6), flat_polar(6.0, 0.0, 1e6)]).unwrap_err(),
             PolarError::InvalidTable
         );
+    }
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn polar_rejects_nan_and_bad_flight_condition() {
+        let ok = || vec![-1.0, 0.0, 1.0];
+        let v = || vec![0.1, 0.0, 0.2];
+        assert!(AirfoilPolar::new(ok(), v(), v(), v(), 0.2, 1.0e6).is_ok());
+        let nan = vec![-1.0, f64::NAN, 1.0];
+        assert!(AirfoilPolar::new(ok(), nan, v(), v(), 0.2, 1.0e6).is_err());
+        assert!(AirfoilPolar::new(ok(), v(), v(), v(), f64::NAN, 1.0e6).is_err());
+        assert!(AirfoilPolar::new(ok(), v(), v(), v(), 0.2, 0.0).is_err());
+    }
+}
+
+#[cfg(test)]
+mod stall_and_set_tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn stall_blend_never_raises_lift_magnitude() {
+        let m = StallModel::symmetric(0.2, 0.1, 1.2);
+        // Below the plateau and past the stall angle: must not be pushed up.
+        assert!(m.apply(0.5, 0.4) <= 0.4 + 1e-12);
+        // Above the plateau: moves toward it, downward.
+        assert!(m.apply(0.5, 1.5) < 1.5 && m.apply(0.5, 1.5) >= 1.2 - 1e-12);
+        // Negative side mirrors it.
+        assert!(m.apply(-0.5, -0.4) >= -0.4 - 1e-12);
+    }
+
+    #[test]
+    fn polar_set_blend_matches_direct_lookup_on_the_grid() {
+        let mk = |mach: f64, re: f64, cl: f64| {
+            AirfoilPolar::new(
+                vec![-1.0, 0.0, 1.0],
+                vec![-cl, 0.0, cl],
+                vec![0.01, 0.01, 0.01],
+                vec![0.0, 0.0, 0.0],
+                mach,
+                re,
+            )
+            .expect("valid")
+        };
+        let set = PolarSet::new(vec![
+            mk(0.0, 1e6, 1.0),
+            mk(0.0, 2e6, 1.2),
+            mk(0.5, 1e6, 1.4),
+        ])
+        .expect("valid");
+        assert!((set.cl_at(0.0, 1e6, 0.5) - 0.5).abs() < 1e-12);
+        assert!((set.cl_at(0.0, 1.5e6, 0.5) - 0.55).abs() < 1e-9);
+        assert!((set.cl_at(0.25, 1e6, 0.5) - 0.6).abs() < 1e-9);
+        assert!(PolarSet::default().cl_at(0.0, 1e6, 0.5).is_nan());
     }
 }

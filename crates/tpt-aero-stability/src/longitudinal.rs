@@ -31,9 +31,12 @@ pub struct LongitudinalDerivatives {
     pub cl_q: f64,
     /// Pitch-rate moment derivative `C_{mq}`.
     pub cm_q: f64,
-    /// Flap-effectiveness lift derivative `C_{Lδ}`.
+    /// Flap-effectiveness lift derivative `C_{Lδ}` for a uniform camber-line
+    /// change over every panel (a whole-aircraft flap). For a named surface
+    /// such as an elevator, use [`crate::controls::control_derivatives`].
     pub cl_delta: f64,
-    /// Flap-effectiveness moment derivative `C_{mδ}`.
+    /// Flap-effectiveness moment derivative `C_{mδ}`, uniform over every panel.
+    /// For a named surface, use [`crate::controls::control_derivatives`].
     pub cm_delta: f64,
 }
 

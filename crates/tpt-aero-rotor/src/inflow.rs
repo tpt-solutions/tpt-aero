@@ -28,9 +28,13 @@ impl SkewedWake {
 
     /// The modulation factor for azimuth `ψ` (rad; 0 = retreating side
     /// convention of the standard rotor diagram) and span fraction `x`.
+    ///
+    /// This is the Coleman first harmonic `1 + (4/3)·tan(χ/2)·x·cos ψ`, clamped
+    /// at zero so the induced inflow never turns negative on the advancing side.
     #[must_use]
     pub fn modulation(&self, psi: f64, x: f64) -> f64 {
-        1.0 + self.skew_angle.tan() * x * psi.cos()
+        let k = 4.0 / 3.0 * (0.5 * self.skew_angle).tan();
+        (1.0 + k * x * psi.cos()).max(0.0)
     }
 
     /// Modulated inflow ratio at `(ψ, x)` for the axial value `λ₀`.
@@ -112,8 +116,11 @@ mod tests {
     fn skewed_wake_first_harmonic() {
         let sw = SkewedWake { skew_angle: 0.4 };
         let m = sw.modulation(0.0, 0.7);
-        let expected = 1.0 + 0.4_f64.tan() * 0.7;
+        let expected = 1.0 + 4.0 / 3.0 * 0.2_f64.tan() * 0.7;
         assert!((m - expected).abs() < 1e-12);
+        // Large skew cannot make the advancing-side inflow negative.
+        let steep = SkewedWake { skew_angle: 2.6 };
+        assert!(steep.modulation(core::f64::consts::PI, 1.0) >= 0.0);
         // Advancing side (ψ=π) modulates opposite to retreating (ψ=0).
         assert!(sw.modulation(0.0, 0.7) > 1.0);
         assert!(sw.modulation(core::f64::consts::PI, 0.7) < 1.0);

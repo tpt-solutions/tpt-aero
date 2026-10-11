@@ -1,0 +1,19 @@
+# tpt-aero wing case. Run: tpt-aero wing wing.toml --out polar.csv
+
+[wing]
+span = 10.0          # m
+root_chord = 1.0     # m
+tip_chord = 1.0      # m (default: root_chord)
+sweep_le = 0.0       # m, aft offset of the tip leading edge
+dihedral_deg = 0.0
+# camber = { m = 0.02, p = 0.4 }   # NACA-style camber line (omit for flat plate)
+
+[mesh]
+n_span = 24
+n_chord = 4
+
+[conditions]
+speed = 50.0         # m/s
+altitude = 0.0       # m (ISA density); or set `density` in kg/m^3 instead
+# density = 1.225
+alpha = { start = -4.0, stop = 10.0, step = 2.0 }   # degrees

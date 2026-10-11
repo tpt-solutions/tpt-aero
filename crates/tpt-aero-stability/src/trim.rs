@@ -58,7 +58,13 @@ pub enum TrimError {
     Singular,
     /// Newton iteration did not converge.
     NoConvergence,
+    /// The trimmed angle of attack is beyond ±20°, outside the range where the
+    /// linear, attached-flow VLM is meaningful.
+    OutsideEnvelope,
 }
+
+/// Largest angle of attack (rad) a trim may return: 20°.
+pub const TRIM_ALPHA_LIMIT: f64 = 20.0 * core::f64::consts::PI / 180.0;
 
 impl core::fmt::Display for TrimError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -68,6 +74,7 @@ impl core::fmt::Display for TrimError {
             Self::Solve(e) => write!(f, "VLM solve failed: {e}"),
             Self::Singular => write!(f, "angle of attack and elevator cannot trim independently"),
             Self::NoConvergence => write!(f, "trim iteration did not converge"),
+            Self::OutsideEnvelope => write!(f, "trimmed angle of attack is beyond ±20 deg"),
         }
     }
 }
@@ -111,9 +118,14 @@ pub fn trim_level_flight(model: &VlmModel, req: &TrimRequest<'_>) -> Result<Trim
 
     let (mut alpha, mut elevator) = (0.03_f64, 0.0_f64);
     let h = 1.0e-4;
-    for iteration in 1..=15 {
+    // Relative tolerance on the lift residual; the moment is dimensionless.
+    let tol_cl = 1.0e-10 * cl_required.abs().max(1.0);
+    for iteration in 1..=30 {
         let (f_cl, f_cm, cdi) = evaluate(alpha, elevator)?;
-        if f_cl.abs() < 1.0e-10 && f_cm.abs() < 1.0e-10 {
+        if f_cl.abs() < tol_cl && f_cm.abs() < 1.0e-10 {
+            if alpha.abs() > TRIM_ALPHA_LIMIT {
+                return Err(TrimError::OutsideEnvelope);
+            }
             return Ok(Trim {
                 alpha_rad: alpha,
                 elevator_rad: elevator,
@@ -140,8 +152,26 @@ pub fn trim_level_flight(model: &VlmModel, req: &TrimRequest<'_>) -> Result<Trim
         if det.is_nan() || det.abs() <= 1.0e-9 * scale.max(1.0e-30) {
             return Err(TrimError::Singular);
         }
-        alpha -= (j[1][1] * f_cl - j[0][1] * f_cm) / det;
-        elevator -= (-j[1][0] * f_cl + j[0][0] * f_cm) / det;
+        let d_alpha = (j[1][1] * f_cl - j[0][1] * f_cm) / det;
+        let d_elev = (-j[1][0] * f_cl + j[0][0] * f_cm) / det;
+        // Damped step: halve until the residual norm decreases, so a Newton
+        // step that overshoots does not throw the iterate away.
+        let norm = |r: (f64, f64)| (r.0 / cl_required.abs().max(1.0)).hypot(r.1);
+        let current = norm((f_cl, f_cm));
+        let mut lambda = 1.0_f64;
+        let mut accepted = (alpha - lambda * d_alpha, elevator - lambda * d_elev);
+        for _ in 0..20 {
+            let (a, e) = accepted;
+            if let Ok((c, m, _)) = evaluate(a, e) {
+                if norm((c, m)) < current || lambda < 1.0e-3 {
+                    break;
+                }
+            }
+            lambda *= 0.5;
+            accepted = (alpha - lambda * d_alpha, elevator - lambda * d_elev);
+        }
+        alpha = accepted.0;
+        elevator = accepted.1;
         if !(alpha.is_finite() && elevator.is_finite() && alpha.abs() < 1.0) {
             return Err(TrimError::NoConvergence);
         }

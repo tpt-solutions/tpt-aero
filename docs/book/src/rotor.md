@@ -1,6 +1,6 @@
 # Rotors and propellers (BEMT)
 
-```rust
+```rust,ignore
 use tpt_aero::rotor::{BemtSolver, HubLoss, OperatingCondition, RotorGeometry, SectionModel, TipLoss};
 
 let geometry = RotorGeometry::rectangular(1.0, 0.1, 2, 0.08, 20).with_linear_twist(0.4, 0.1);

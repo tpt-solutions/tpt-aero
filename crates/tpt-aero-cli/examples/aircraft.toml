@@ -1,0 +1,53 @@
+# tpt-aero aircraft case. Run: tpt-aero trim aircraft.toml --speed 50 [--bank 20]
+
+[mass]
+mass = 600.0          # kg
+cd0 = 0.03            # parasite drag coefficient (sets the thrust needed)
+
+[[surface]]           # main wing
+kind = "horizontal"   # or "vertical" (fins)
+span = 10.0           # m
+root_chord = 1.2      # m
+tip_chord = 1.2       # m (default: root_chord)
+sweep_le = 0.0        # m, aft offset of the tip leading edge
+dihedral_deg = 5.0    # a little dihedral gives the wing its own lateral force, so
+                      # sideslip and rudder can be told apart in a turn trim
+n_span = 20
+n_chord = 3
+[[surface.control]]
+name = "aileron"
+hinge = 0.75          # control starts at this chord fraction and runs to the TE
+inboard = 2.5         # m, spanwise extent from the centreline
+outboard = 4.8
+symmetry = "antisymmetric"
+
+[[surface]]           # horizontal tail
+kind = "horizontal"   # keep it clear of the fin: a tail at z = 0 meets the fin
+                      # root, and the sideslip derivatives then go unreliable
+span = 4.0
+root_chord = 0.6
+tip_chord = 0.6
+x = 4.0               # m aft of the wing's reference point
+n_span = 10
+n_chord = 3
+[[surface.control]]
+name = "elevator"
+hinge = 0.6
+inboard = 0.0
+outboard = 2.0
+symmetry = "symmetric"
+
+[[surface]]           # fin
+kind = "vertical"
+span = 1.5
+root_chord = 0.9
+tip_chord = 0.5
+x = 3.8
+n_span = 6
+n_chord = 3
+[[surface.control]]
+name = "rudder"
+hinge = 0.6
+inboard = 0.0
+outboard = 0.75      # |y| up to span/2: the rudder covers the whole fin
+symmetry = "symmetric"

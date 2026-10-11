@@ -104,10 +104,17 @@ impl Slipstream {
     }
 
     /// Tube radius at axial station `x` (m), from mass conservation.
+    ///
+    /// With no thrust and no freestream there is no contraction to speak of,
+    /// so the tube keeps the disk radius rather than dividing by zero.
     #[must_use]
     pub fn tube_radius(&self, x: f64) -> f64 {
-        let total = (self.v_inf + self.axial_increment(x)).max(f64::MIN_POSITIVE);
-        self.radius * ((self.v_inf + self.induced) / total).sqrt()
+        let upstream = self.v_inf + self.induced;
+        let total = self.v_inf + self.axial_increment(x);
+        if upstream <= 0.0 || total <= 0.0 {
+            return self.radius;
+        }
+        self.radius * (upstream / total).sqrt()
     }
 
     /// Axial velocity increment at station `x` and radial distance `r` from the
@@ -236,5 +243,21 @@ mod tests {
         assert!(Slipstream::new(1.0, 5.0, -1.0, 1.225).is_err());
         assert!(Slipstream::new(1.0, 5.0, 0.0, 0.0).is_err());
         assert!(Slipstream::new(f64::NAN, 5.0, 0.0, 1.225).is_err());
+    }
+}
+
+#[cfg(test)]
+mod zero_thrust_tests {
+    use super::*;
+
+    #[test]
+    fn zero_thrust_and_zero_speed_are_finite() {
+        let s = Slipstream::new(1.0, 0.0, 0.0, 1.225).expect("valid");
+        for &(x, r) in &[(0.0, 0.0), (0.5, 0.0), (0.5, 1.0), (-1.0, 0.3)] {
+            assert!(s.velocity_increment(x, r).is_finite());
+            assert!(s.dynamic_pressure_increment(x, r).is_finite());
+            assert!(s.tube_radius(x).is_finite());
+        }
+        assert_eq!(s.dynamic_pressure_increment(0.5, 0.0), 0.0);
     }
 }

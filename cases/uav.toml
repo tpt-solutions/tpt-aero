@@ -1,0 +1,18 @@
+# tpt-aero UAV wing case: a 2 m, 15 m/s fixed-wing UAV. Run: tpt-aero wing uav.toml
+[wing]
+span = 2.0           # m
+root_chord = 0.25    # m
+tip_chord = 0.18     # m
+sweep_le = 0.02      # m, aft offset of the tip leading edge
+dihedral_deg = 3.0
+camber = { m = 0.02, p = 0.4 }
+
+[mesh]
+n_span = 20
+n_chord = 4
+
+[conditions]
+speed = 15.0         # m/s cruise
+altitude = 100.0     # m (ISA)
+alpha = { start = -2.0, stop = 10.0, step = 2.0 }   # degrees
+cd0 = 0.02           # parasite drag, for the cd and l_over_d columns

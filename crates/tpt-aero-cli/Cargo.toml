@@ -20,9 +20,13 @@ doc = false
 
 [dependencies]
 tpt-aero = { workspace = true, features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

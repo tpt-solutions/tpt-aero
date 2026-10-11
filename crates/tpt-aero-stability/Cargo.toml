@@ -10,7 +10,7 @@ readme = "README.md"
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/tpt-aero-stability"
-keywords = ["stability-derivatives", "flight-mechanics", "flight-dynamics", "aerodynamics"]
+keywords = ["stability", "derivatives", "flight-mechanics", "flight-dynamics", "control-design"]
 categories = ["science", "aerospace", "simulation"]
 
 [dependencies]

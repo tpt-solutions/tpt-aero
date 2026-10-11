@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tpt-aero in the browser</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #ffffff; --fg: #1b1f24; --muted: #59636e; --line: #d0d7de; --accent: #1f6feb; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --bg: #0d1117; --fg: #e6edf3; --muted: #9aa4af; --line: #30363d; --accent: #58a6ff; }
+    }
+    :root[data-theme="dark"] { --bg: #0d1117; --fg: #e6edf3; --muted: #9aa4af; --line: #30363d; --accent: #58a6ff; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif; }
+    main { max-width: 960px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.4rem; margin: 0.5rem 0; }
+    textarea { width: 100%; min-height: 240px; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 13px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+    button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+    input { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px; width: 110px; }
+    pre { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 13px; }
+    #plot svg { max-width: 100%; height: auto; background: #fff; border-radius: 6px; }
+    .muted { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>tpt-aero in the browser</h1>
+  <p class="muted">The same functions as the command line, compiled to WebAssembly. Edit the wing case, then run a view. Nothing leaves the page.</p>
+  <textarea id="case" spellcheck="false"></textarea>
+  <div class="row">
+    <button id="polar">Polar</button>
+    <button id="warn">Envelope warnings</button>
+    <span class="muted">Speed (m/s)</span><input id="speed" type="number" value="50" step="1">
+    <span class="muted">Altitude (m)</span><input id="alt" type="number" value="0" step="100">
+    <button id="isa">ISA table</button>
+  </div>
+  <div id="plot"></div>
+  <pre id="out" aria-live="polite"></pre>
+</main>
+<script type="module">
+  // The glue file is produced by wasm-bindgen; see README.md in this crate.
+  import init, { wing_svg, wing_warnings, wing_template, isa_table } from "./pkg/tpt_aero_wasm.js";
+
+  const caseBox = document.getElementById("case");
+  const out = document.getElementById("out");
+  const plot = document.getElementById("plot");
+  const show = (fn) => {
+    try { fn(); } catch (e) { out.textContent = "error: " + e; plot.innerHTML = ""; }
+  };
+
+  await init();
+  caseBox.value = wing_template();
+
+  document.getElementById("polar").onclick = () => show(() => {
+    plot.innerHTML = wing_svg(caseBox.value);
+    out.textContent = "";
+  });
+  document.getElementById("warn").onclick = () => show(() => {
+    const w = wing_warnings(caseBox.value);
+    out.textContent = w.length ? w : "No warnings: the case is inside the validity envelope.";
+  });
+  document.getElementById("isa").onclick = () => show(() => {
+    const alt = Number(document.getElementById("alt").value);
+    out.textContent = isa_table(new Float64Array([alt]));
+  });
+</script>
+</body>
+</html>

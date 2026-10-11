@@ -68,6 +68,8 @@ fn config() -> SixDofConfig<'static> {
         elevator: "elevator",
         aileron: "aileron",
         rudder: "rudder",
+        wind_ned: [0.0, 0.0, 0.0],
+        thrust_body_fixed: false,
     }
 }
 
