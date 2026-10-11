@@ -57,8 +57,18 @@ cargo run --example airfoil_cp            # NACA 0012 pressure distribution
 cargo run --example propeller_sweep       # BEMT propeller map
 cargo run --example stability_derivatives # CG sweep and short-period mode
 cargo run --example isa_table             # standard atmosphere
+cargo run --example glider_polar          # glider polar, best L/D and minimum sink
+cargo run --example trim_stability_report # trim and stability report, conventional aircraft
+cargo run --example twist_optimization    # linear washout for minimum induced drag
+cargo run --example uav_wing_sizing       # wing area and span vs. induced drag
+cargo run --example drone_prop_selection  # propeller choice against a motor curve
 cargo run --release --example propeller_flight   # BEMT propeller in a 6-DOF run
+cargo run -p tpt-aero-rotor --example hover_bemt       # BEMT hover point and map
+cargo run -p tpt-aero-rotor --example slipstream_tail  # slipstream over a tailplane
 ```
+
+The examples and their output are described in
+[crates/tpt-aero/examples/README.md](crates/tpt-aero/examples/README.md).
 
 Or without writing Rust, with the `tpt-aero` command (`cargo install --path crates/tpt-aero-cli`):
 
@@ -70,7 +80,12 @@ tpt-aero vtk wing.toml --alpha 5 --out lattice.vtk
 tpt-aero isa 0 5000 11000
 tpt-aero rotor rotor.toml                   # BEMT operating point (template rotor)
 tpt-aero trim aircraft.toml --speed 50 --bank 20   # coordinated turn trim
+tpt-aero report aircraft.toml --speed 50    # Markdown aircraft report
+tpt-aero avl export aircraft.toml --out aircraft.avl   # AVL deck (also `avl import`)
 ```
+
+Ready-to-run case files with expected output live in [cases/](cases/README.md).
+Each one is checked by the test suite to a relative tolerance of 1e-6.
 
 ## Crates
 
@@ -85,6 +100,8 @@ tpt-aero trim aircraft.toml --speed 50 --bank 20   # coordinated turn trim
 | [`tpt-aero-stability`](crates/tpt-aero-stability) | Derivatives, trim, modes, simulation, feedback |
 | [`tpt-aero-verify`](crates/tpt-aero-verify) | proptest strategies and Kani proof harnesses |
 | [`tpt-aero-cli`](crates/tpt-aero-cli) | The `tpt-aero` command |
+| [`tpt-aero-py`](crates/tpt-aero-py) | Python bindings: same TOML case text in and out as the CLI |
+| [`tpt-aero-wasm`](crates/tpt-aero-wasm) | WebAssembly bindings, with a browser demo in `www/` |
 
 ## Read this before trusting a number
 
@@ -122,10 +139,13 @@ and [todo.md](todo.md) for the open items. MSRV 1.85.
 
 ## Contributing
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the process. In short,
 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` and
 `cargo test --workspace` must pass; CI also runs `cargo-deny`, a `no_std`
 build, and every example plus a CLI smoke test. The workspace path-depends on
 a sibling checkout of `tpt-math` (CI clones it automatically).
+
+Report security issues as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

@@ -24,7 +24,7 @@ doc = false
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-tpt-aero-cli = { path = "../tpt-aero-cli" }
+tpt-aero-cli = { version = "0.1.0", path = "../tpt-aero-cli" }
 pyo3 = { version = "0.29", features = ["abi3-py39"] }
 
 [lints]

@@ -1,15 +1,22 @@
 name: setup-tpt-math
-description: Clone the sibling tpt-math workspace that Cargo.toml path-depends on (../tpt-math), pinned to a known commit.
+description: Clone the sibling tpt-math and tpt-simd workspaces that Cargo.toml and tpt-math's crates path-depend on (../tpt-math, ../tpt-simd), each pinned to a known commit.
 runs:
   using: composite
   steps:
     - shell: bash
-      # Pinned to the tpt-math commit this workspace was last tested against
-      # (origin/master at the time of pinning). Bump the SHA deliberately.
+      # Pinned to the commits this workspace was last tested against
+      # (origin/master at the time of pinning). Bump the SHAs deliberately.
+      # tpt-simd is needed because tpt-math-linalg-dense has an optional path
+      # dependency on tpt-simd-blas (../../../tpt-simd). Cargo reads that
+      # manifest even when the feature is off, so the checkout must exist.
       run: |
         set -euo pipefail
-        dest="$GITHUB_WORKSPACE/../tpt-math"
-        git init --quiet "$dest"
-        git -C "$dest" remote add origin https://github.com/tpt-solutions/tpt-math.git
-        git -C "$dest" fetch --depth 1 origin 2b86a62c6f323d06c715c862304ae064f153c279
-        git -C "$dest" checkout --quiet FETCH_HEAD
+        clone() {
+          local dest="$GITHUB_WORKSPACE/../$1" url="$2" sha="$3"
+          git init --quiet "$dest"
+          git -C "$dest" remote add origin "$url"
+          git -C "$dest" fetch --depth 1 origin "$sha"
+          git -C "$dest" checkout --quiet FETCH_HEAD
+        }
+        clone tpt-math https://github.com/tpt-solutions/tpt-math.git 2b86a62c6f323d06c715c862304ae064f153c279
+        clone tpt-simd https://github.com/tpt-solutions/tpt-simd.git 52236bac1ecb131026ed449241caab98b79b8581

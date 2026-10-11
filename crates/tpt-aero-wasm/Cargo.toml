@@ -16,7 +16,7 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-tpt-aero-cli = { path = "../tpt-aero-cli" }
+tpt-aero-cli = { version = "0.1.0", path = "../tpt-aero-cli" }
 wasm-bindgen = "0.2"
 
 [lints]
