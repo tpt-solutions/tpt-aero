@@ -36,8 +36,8 @@ pub enum TurbulenceModel {
 ///   with output `σ√(3/τ)·(v₁/√3 + (1 − 1/√3) v₂)`. The stationary variance is
 ///   `σ²` by the Lyapunov solution of this two-state system.
 ///
-/// The von Kármán model uses the rational shaping filters of
-/// [`ShapingFilter`], whose spectra follow the MIL-HDBK-1797 von Kármán forms.
+/// The von Kármán model uses internal rational shaping filters (`ShapingFilter`),
+/// whose spectra follow the MIL-HDBK-1797 von Kármán forms.
 #[derive(Debug, Clone)]
 pub struct TurbulenceAxis {
     /// Filter time constant τ = L/V (s).

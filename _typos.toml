@@ -1,0 +1,19 @@
+# Terms that are correct in this project but not in the English dictionary.
+# Each entry maps the word to itself, which tells typos to accept it.
+[default.extend-words]
+# Caradonna-Tung model rotor (surname)
+Tung = "Tung"
+# Figure of merit (rotor hover efficiency)
+fom = "fom"
+FOM = "FOM"
+# Moment of inertia about x, y and z, and their lowercase variable forms
+Iz = "Iz"
+iz = "iz"
+iy = "iy"
+# North-East-Down frame
+ned = "ned"
+NED = "NED"
+# Valid English: "not stalled"
+unstalled = "unstalled"
+# Deliberate misspelling in a CLI test that checks the parser rejects it
+radus = "radus"
