@@ -44,6 +44,11 @@ pub enum VlmError {
     /// The reference area, chord or span is not finite and positive, so the
     /// coefficients would be meaningless.
     InvalidReference,
+    /// The section lift limit is not finite and positive.
+    InvalidStallLimit,
+    /// The strip incidences did not settle within the iteration limit in a
+    /// lift-limited solve (see [`VlmModel::solve_stall_limited`]).
+    StallNotConverged,
 }
 
 /// Direction of the horseshoe trailing legs.
@@ -85,6 +90,12 @@ impl core::fmt::Display for VlmError {
             }
             VlmError::InvalidGroundHeight => {
                 write!(f, "ground height must be finite and positive")
+            }
+            VlmError::InvalidStallLimit => {
+                write!(f, "section lift limit must be finite and positive")
+            }
+            VlmError::StallNotConverged => {
+                write!(f, "lift-limited strip incidences did not settle")
             }
         }
     }
@@ -1126,6 +1137,88 @@ impl VlmModel {
             strip_cl,
             force,
         })
+    }
+
+    /// Lift-limited solve for post-stall behaviour: each spanwise strip's
+    /// section lift is capped at `cl_max` in magnitude.
+    ///
+    /// A strip above the cap has its incidence reduced, through a per-strip
+    /// change to the element twists, until its section lift equals the cap.
+    /// Strips below the cap keep the linear solution. Each strip's incidence
+    /// change is one-signed: it only reduces lift, so the result never exceeds
+    /// the linear solution in any strip.
+    ///
+    /// This is a plateau model. It holds lift at the cap and does not
+    /// reproduce the post-stall lift drop, so it is not a substitute for
+    /// viscous data near `CL_max`.
+    ///
+    /// `twists` is the per-element perturbation (empty ⇒ zero), as for
+    /// [`VlmModel::solve`]. `cl_max` is the section lift limit, in the same
+    /// units as `strip_cl`.
+    ///
+    /// # Errors
+    /// [`VlmError::InvalidStallLimit`] for a non-positive `cl_max`,
+    /// [`VlmError::StallNotConverged`] if the incidences do not settle, and
+    /// any error from [`VlmModel::solve`].
+    pub fn solve_stall_limited(
+        &self,
+        alpha_rad: f64,
+        v_inf: f64,
+        density: f64,
+        twists: &[f64],
+        cl_max: f64,
+    ) -> Result<VlmSolution, VlmError> {
+        // Section lift slope used to scale each incidence step (thin-airfoil 2π).
+        const SECTION_SLOPE: f64 = 2.0 * core::f64::consts::PI;
+        // Full step: converges in about 110 iterations on a 16-strip wing at
+        // 18°. Half this relaxation needed roughly 200 or more.
+        const RELAX: f64 = 1.0;
+        const MAX_ITER: usize = 500;
+        const TOL: f64 = 1.0e-10;
+
+        if !(cl_max.is_finite() && cl_max > 0.0) {
+            return Err(VlmError::InvalidStallLimit);
+        }
+        let n = self.lattice.len();
+        if !twists.is_empty() && twists.len() != n {
+            return Err(VlmError::DimensionMismatch);
+        }
+        let elements = self.lattice.elements();
+        let strips = self.lattice.strip_count();
+        let base: Vec<f64> = if twists.is_empty() {
+            vec![0.0; n]
+        } else {
+            twists.to_vec()
+        };
+        // Incidence change per strip (rad): ≤ 0 on the positive-lift side.
+        let mut delta = vec![0.0; strips];
+        for _ in 0..MAX_ITER {
+            let tw: Vec<f64> = elements
+                .iter()
+                .enumerate()
+                .map(|(i, e)| base[i] + delta[e.strip])
+                .collect();
+            let sol = self.solve(alpha_rad, v_inf, density, &tw)?;
+            let mut moved: f64 = 0.0;
+            for (s, d) in delta.iter_mut().enumerate() {
+                let cl = sol.strip_cl[s];
+                let sign = if cl >= 0.0 { 1.0 } else { -1.0 };
+                let excess = cl.abs() - cl_max;
+                let mut next = *d - sign * RELAX * excess / SECTION_SLOPE;
+                // Reduce incidence only: clip to the lift-producing side.
+                next = if sign > 0.0 {
+                    next.min(0.0)
+                } else {
+                    next.max(0.0)
+                };
+                moved = moved.max((next - *d).abs());
+                *d = next;
+            }
+            if moved < TOL {
+                return Ok(sol);
+            }
+        }
+        Err(VlmError::StallNotConverged)
     }
 
     /// Velocity at the bound-vortex midpoint of element `j`: freestream plus
