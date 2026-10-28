@@ -19,5 +19,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `turbulence::WhiteNoise`: a reproducible `no_std` noise source (uniform and Gaussian), so simulations repeat exactly for a given seed.
 - Optional `serde` feature on state and parameter types.
 
+### Changed
+- `turbulence`: the von Kármán model now uses rational shaping filters fitted to the MIL-HDBK-1797 spectra (third order for lateral and vertical, second order for longitudinal), in place of the first-order approximation. The gain is set from each filter's own integral, so the stationary intensity is exactly σ. The von Kármán medium-altitude scale is 2500 ft (762 m) on every axis. The Dryden model is unchanged.
+
 ### Fixed
 - Initial release candidate; no fixes recorded against this crate yet.

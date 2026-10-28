@@ -15,7 +15,11 @@ const FEET_PER_METRE: f64 = 3.280_84;
 pub enum TurbulenceModel {
     /// Dryden spectra (rational transfer functions — exact realization).
     Dryden,
-    /// von Kármán spectra (rational approximations per MIL-HDBK-1797).
+    /// von Kármán spectra (MIL-HDBK-1797): rational shaping filters fitted to
+    /// the handbook spectra, third order for the lateral and vertical axes and
+    /// second order for the longitudinal axis. Accurate to a few per cent for
+    /// `L·ω/V ≤ 3`; the handbook says the true spectrum needs higher-order
+    /// filters above that.
     VonKarman,
 }
 
@@ -23,7 +27,7 @@ pub enum TurbulenceModel {
 ///
 /// Two realizations, both with the stationary variance set to `σ²` exactly:
 ///
-/// * **First order** (Dryden longitudinal, and von Kármán as an approximation):
+/// * **First order** (Dryden longitudinal):
 ///   `dx = −x/τ dt + σ√(2/τ) dW`, integrated with the exact discrete update
 ///   `x ← e^{−dt/τ} x + σ√(1 − e^{−2dt/τ}) ξ`, which is stable for any step.
 /// * **Second order** (Dryden lateral and vertical, `vertical = true`): the
@@ -32,12 +36,11 @@ pub enum TurbulenceModel {
 ///   with output `σ√(3/τ)·(v₁/√3 + (1 − 1/√3) v₂)`. The stationary variance is
 ///   `σ²` by the Lyapunov solution of this two-state system.
 ///
-/// The von Kármán spectrum is approximated by the first-order filter with the
-/// 1.339 pole factor. That is a scale-length correction, not the exact von
-/// Kármán spectrum.
+/// The von Kármán model uses the rational shaping filters of
+/// [`ShapingFilter`], whose spectra follow the MIL-HDBK-1797 von Kármán forms.
 #[derive(Debug, Clone)]
 pub struct TurbulenceAxis {
-    /// Filter time constant τ (s).
+    /// Filter time constant τ = L/V (s).
     tau: f64,
     /// Output standard deviation (m/s).
     sigma: f64,
@@ -49,14 +52,21 @@ pub struct TurbulenceAxis {
     x2: f64,
     /// Current output (m/s).
     output: f64,
+    /// The von Kármán shaping filter (`None` for Dryden).
+    shaping: Option<ShapingFilter>,
 }
 
 impl TurbulenceAxis {
-    /// Intensity σ (m/s) and integral scale L (m) at true airspeed `v` (m/s).
+    /// Intensity σ (m/s) and scale length `length` (m) at true airspeed `v`
+    /// (m/s).
     ///
-    /// `vertical` selects the second-order Dryden form for the Dryden model
-    /// (the lateral and vertical axes). A negative or non-finite `sigma` is
-    /// treated as zero, and `length` and `speed` are floored at 10⁻⁶.
+    /// `vertical` selects the lateral and vertical axes: the second-order
+    /// Dryden form, or the third-order von Kármán filter. Otherwise the axis is
+    /// longitudinal. For von Kármán, `length` is the filter scale: `L_u` on the
+    /// longitudinal axis and `2L_v`, `2L_w` on the lateral and vertical axes,
+    /// the MIL-HDBK-1797 convention in which `L_u = 2L_v = 2L_w`. A negative or
+    /// non-finite `sigma` is treated as zero, and `length` and `speed` are
+    /// floored at 10⁻⁶.
     #[must_use]
     pub fn new(
         model: TurbulenceModel,
@@ -73,12 +83,11 @@ impl TurbulenceAxis {
         let v = speed.max(1.0e-6);
         let l = length.max(1.0e-6);
         let second_order = vertical && model == TurbulenceModel::Dryden;
-        // von Kármán spectra carry a 1.339 pole-factor; Dryden does not.
-        let pole_factor = match model {
-            TurbulenceModel::Dryden => 1.0,
-            TurbulenceModel::VonKarman => 1.339,
+        let tau = l / v;
+        let shaping = match model {
+            TurbulenceModel::Dryden => None,
+            TurbulenceModel::VonKarman => Some(ShapingFilter::von_karman(vertical, sigma, tau)),
         };
-        let tau = pole_factor * l / v;
         Self {
             tau,
             sigma,
@@ -86,13 +95,21 @@ impl TurbulenceAxis {
             x1: 0.0,
             x2: 0.0,
             output: 0.0,
+            shaping,
         }
     }
 
     /// Advance the filter one time step with a standard normal sample `w`.
     /// A non-positive `dt` leaves the state unchanged.
+    ///
+    /// The von Kármán filter is integrated by Euler–Maruyama, so `dt` should
+    /// stay below about `0.1·τ` (the fastest lateral pole is at `11/τ`).
     pub fn step(&mut self, w: f64, dt: f64) {
         if !(dt.is_finite() && dt > 0.0) {
+            return;
+        }
+        if let Some(filter) = &mut self.shaping {
+            self.output = filter.step(w, dt);
             return;
         }
         let tau = self.tau;
@@ -127,6 +144,113 @@ impl TurbulenceAxis {
     }
 }
 
+/// Von Kármán lateral and vertical shaping numerator, `N(s)` with `s = (L/V)·p`
+/// and constant term 1. Least-squares fit to the MIL-HDBK-1797 spectrum
+/// `(1 + (8/3)(1.339x)²)/(1 + (1.339x)²)^(11/6)`, `x = Lω/V`.
+const VK_LATERAL_NUM: [f64; 3] = [1.0, 2.7478, 0.3398];
+/// Von Kármán lateral and vertical shaping denominator `D(s)` (same fit).
+const VK_LATERAL_DEN: [f64; 4] = [1.0, 2.9958, 1.9754, 0.1539];
+/// Von Kármán longitudinal shaping numerator (fit to `(1 + (1.339x)²)^(−5/6)`).
+const VK_LONGITUDINAL_NUM: [f64; 2] = [1.0, 0.25];
+/// Von Kármán longitudinal shaping denominator `D(s)` (same fit).
+const VK_LONGITUDINAL_DEN: [f64; 3] = [1.0, 1.357, 0.1987];
+
+/// `x^k` for a small non-negative integer power.
+fn pow_int(x: f64, k: usize) -> f64 {
+    (0..k).fold(1.0, |acc, _| acc * x)
+}
+
+/// `|P(jx)|²` for a real polynomial `P(s) = Σ c_k s^k`.
+fn poly_mag2(c: &[f64], x: f64) -> f64 {
+    let (mut re, mut im) = (0.0, 0.0);
+    for (k, &ck) in c.iter().enumerate() {
+        let term = ck * pow_int(x, k);
+        // s^k = j^k x^k: the powers cycle through 1, j, −1, −j.
+        match k % 4 {
+            0 => re += term,
+            1 => im += term,
+            2 => re -= term,
+            _ => im -= term,
+        }
+    }
+    re * re + im * im
+}
+
+/// `∫₀^∞ |N(jx)/D(jx)|² dx`, by the midpoint rule in `θ` with `x = tan θ`.
+fn shaping_integral(num: &[f64], den: &[f64]) -> f64 {
+    const STEPS: usize = 4096;
+    let h = core::f64::consts::FRAC_PI_2 / STEPS as f64;
+    (0..STEPS)
+        .map(|i| {
+            let theta = (i as f64 + 0.5) * h;
+            let x = theta.tan();
+            // dx = sec²θ dθ.
+            let ratio = poly_mag2(num, x) / poly_mag2(den, x);
+            ratio * h / (theta.cos() * theta.cos())
+        })
+        .sum()
+}
+
+/// A rational shaping filter `H(p) = g·N(τp)/D(τp)` driven by unit white noise,
+/// in controllable companion form.
+///
+/// The states satisfy `ẋᵢ = xᵢ₊₁` and `ẋₙ₋₁ = −Σ aₖxₖ + w`, and the output is
+/// `Σ bₖxₖ`. The gain `g` sits in the `b` coefficients. The state update is
+/// Euler–Maruyama, the same scheme as the second-order Dryden branch.
+#[derive(Debug, Clone)]
+struct ShapingFilter {
+    /// Coefficients `a₀..aₙ₋₁` of the monic denominator `pⁿ + Σ aₖpᵏ`.
+    a: Vec<f64>,
+    /// Coefficients `b₀..bₙ₋₁` of the numerator, gain included.
+    b: Vec<f64>,
+    /// States `x₀..xₙ₋₁`.
+    x: Vec<f64>,
+}
+
+impl ShapingFilter {
+    /// The von Kármán filter for the lateral and vertical axes (`vertical`) or
+    /// the longitudinal axis, with stationary standard deviation `sigma` and
+    /// time constant `tau = L/V`.
+    fn von_karman(vertical: bool, sigma: f64, tau: f64) -> Self {
+        let (num, den): (&[f64], &[f64]) = if vertical {
+            (&VK_LATERAL_NUM, &VK_LATERAL_DEN)
+        } else {
+            (&VK_LONGITUDINAL_NUM, &VK_LONGITUDINAL_DEN)
+        };
+        // With unit white noise, the variance of g·N/D is (g²/π)(V/L)∫|N/D|²dx.
+        // Setting that to σ² gives g = σ√(πτ/I), with I the integral of the
+        // rational filter itself. This makes the realised intensity exact.
+        let gain = sigma * (core::f64::consts::PI * tau / shaping_integral(num, den)).sqrt();
+        let n = den.len() - 1;
+        // Divide through by the leading coefficient of D(τp) to make it monic.
+        let lead = den[n] * pow_int(tau, n);
+        let a = (0..n).map(|k| den[k] * pow_int(tau, k) / lead).collect();
+        let b = (0..n)
+            .map(|k| {
+                let nk = num.get(k).copied().unwrap_or(0.0);
+                gain * nk * pow_int(tau, k) / lead
+            })
+            .collect();
+        Self {
+            a,
+            b,
+            x: alloc::vec![0.0; n],
+        }
+    }
+
+    /// Advance one step with white-noise sample `w` and return the output.
+    fn step(&mut self, w: f64, dt: f64) -> f64 {
+        let n = self.x.len();
+        // Feedback from the old states, before any of them is updated.
+        let feedback: f64 = self.a.iter().zip(&self.x).map(|(a, x)| -a * x).sum();
+        for i in 0..n - 1 {
+            self.x[i] += self.x[i + 1] * dt;
+        }
+        self.x[n - 1] += feedback * dt + w * dt.sqrt();
+        self.b.iter().zip(&self.x).map(|(b, x)| b * x).sum()
+    }
+}
+
 /// A three-axis turbulence field.
 #[derive(Debug, Clone)]
 pub struct TurbulenceField {
@@ -144,8 +268,9 @@ impl TurbulenceField {
     /// `sigma` (m/s, "light" ≈ 0.5, "moderate" ≈ 1.5, "severe" ≈ 3.0).
     ///
     /// Low-altitude scale lengths (MIL-HDBK-1797 §3.7.2.1):
-    /// `L_w = h`, `L_u = L_v = h/(0.177 + 0.000823 h)^1.1` (capped at 150 m
-    /// above 760 m where the high-altitude values take over).
+    /// `L_w = h`, `L_u = L_v = h/(0.177 + 0.000823 h)^1.2` (h in feet). The
+    /// altitude is clamped to 3 to 610 m; above 610 m the medium-altitude
+    /// preset applies instead.
     #[must_use]
     pub fn low_altitude(model: TurbulenceModel, speed: f64, altitude: f64, sigma: f64) -> Self {
         // MIL-HDBK-1797 low-altitude scales, in feet:
@@ -163,15 +288,20 @@ impl TurbulenceField {
         }
     }
 
-    /// Medium- and high-altitude isotropic scale (MIL-HDBK-1797): L = 1750 ft
-    /// (533.4 m) on all three axes.
+    /// Medium- and high-altitude scales (MIL-HDBK-1797): 1750 ft (533.4 m) on
+    /// all three axes for Dryden, and 2500 ft (762 m) for von Kármán, where
+    /// `L_u = 2L_v = 2L_w = 2500 ft` puts the filter length at 2500 ft on every
+    /// axis.
     #[must_use]
     pub fn medium_altitude(model: TurbulenceModel, speed: f64, sigma: f64) -> Self {
-        const L: f64 = 533.4;
+        let l = match model {
+            TurbulenceModel::Dryden => 533.4,
+            TurbulenceModel::VonKarman => 762.0,
+        };
         Self {
-            u: TurbulenceAxis::new(model, sigma, L, speed, false),
-            v: TurbulenceAxis::new(model, sigma, L, speed, true),
-            w: TurbulenceAxis::new(model, sigma, L, speed, true),
+            u: TurbulenceAxis::new(model, sigma, l, speed, false),
+            v: TurbulenceAxis::new(model, sigma, l, speed, true),
+            w: TurbulenceAxis::new(model, sigma, l, speed, true),
         }
     }
 
@@ -345,5 +475,63 @@ mod realization_tests {
         let f = TurbulenceField::low_altitude(TurbulenceModel::Dryden, 60.0, 100.0, 1.0);
         let l_u = f.u.tau * 60.0;
         assert!((l_u - 263.0).abs() < 3.0, "L_u = {l_u} m");
+    }
+
+    #[test]
+    fn von_karman_shaping_matches_handbook_spectrum_in_band() {
+        // MIL-HDBK-1797 shapes, x = Lω/V; the fitted filters are checked over
+        // 0 < x ≤ 3 against the spectrum they approximate.
+        let lateral = |x: f64| {
+            (1.0 + 8.0 / 3.0 * (1.339 * x).powi(2)) / (1.0 + (1.339 * x).powi(2)).powf(11.0 / 6.0)
+        };
+        let longitudinal = |x: f64| (1.0 + (1.339 * x).powi(2)).powf(-5.0 / 6.0);
+        let mut worst_lat: f64 = 0.0;
+        let mut worst_lon: f64 = 0.0;
+        for i in 1..=300 {
+            let x = f64::from(i) * 0.01;
+            let r_lat = poly_mag2(&VK_LATERAL_NUM, x) / poly_mag2(&VK_LATERAL_DEN, x);
+            let r_lon = poly_mag2(&VK_LONGITUDINAL_NUM, x) / poly_mag2(&VK_LONGITUDINAL_DEN, x);
+            worst_lat = worst_lat.max((r_lat / lateral(x) - 1.0).abs());
+            worst_lon = worst_lon.max((r_lon / longitudinal(x) - 1.0).abs());
+        }
+        assert!(worst_lat < 0.02, "lateral error {worst_lat}");
+        assert!(worst_lon < 0.04, "longitudinal error {worst_lon}");
+    }
+
+    #[test]
+    fn von_karman_lateral_has_the_designed_intensity() {
+        // τ = 762 m / 50 m/s ≈ 15 s; the slowest pole is at 0.48/τ.
+        let mut axis = TurbulenceAxis::new(TurbulenceModel::VonKarman, 1.5, 762.0, 50.0, true);
+        let s = std_of(&mut axis, 0.1, 400_000, 5);
+        assert!((s - 1.5).abs() < 0.12, "σ_v realized {s}");
+    }
+
+    #[test]
+    fn von_karman_longitudinal_has_the_designed_intensity() {
+        let mut axis = TurbulenceAxis::new(TurbulenceModel::VonKarman, 1.0, 762.0, 50.0, false);
+        let s = std_of(&mut axis, 0.1, 400_000, 17);
+        assert!((s - 1.0).abs() < 0.08, "σ_u realized {s}");
+    }
+
+    #[test]
+    fn von_karman_filter_is_stable_at_a_tenth_of_its_time_constant() {
+        // τ = 100 m / 50 m/s = 2 s; dt = 0.2 s. The fastest lateral pole gives
+        // Euler amplification factor 1 − 11.14·0.1 ≈ −0.11, which is stable.
+        let mut axis = TurbulenceAxis::new(TurbulenceModel::VonKarman, 1.0, 100.0, 50.0, true);
+        let mut noise = WhiteNoise::new(9);
+        let series = simulate_axis(&mut axis, &mut noise, 0.2, 50_000);
+        assert!(series.iter().all(|x| x.is_finite() && x.abs() < 20.0));
+    }
+
+    #[test]
+    fn von_karman_medium_altitude_uses_2500_ft_on_every_axis() {
+        let f = TurbulenceField::medium_altitude(TurbulenceModel::VonKarman, 50.0, 1.0);
+        for axis in [&f.u, &f.v, &f.w] {
+            assert!(
+                (axis.tau * 50.0 - 762.0).abs() < 1e-9,
+                "L = {} m",
+                axis.tau * 50.0
+            );
+        }
     }
 }
