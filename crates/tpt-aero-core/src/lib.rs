@@ -42,6 +42,7 @@ pub mod geometry;
 pub mod linalg;
 pub mod num;
 pub mod polar;
+pub mod poststall;
 pub mod quantities;
 pub mod viscous;
 

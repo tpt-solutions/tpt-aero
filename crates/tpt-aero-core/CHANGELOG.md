@@ -9,6 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `poststall`: the AERODAS empirical post-stall model (Spera, NASA/CR-2008-215434): `cl_max`, `cd_max`, `post_stall_lift` and `post_stall_drag`. The S809 and S809-blade table values in the report are reproduced in the tests.
 - `AirfoilPolar::cl_max`: the peak tabulated section lift coefficient, for use as a lift-limit in `tpt-aero-vlm`.
 
 ### Changed
