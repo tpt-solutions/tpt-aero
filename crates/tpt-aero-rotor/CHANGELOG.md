@@ -9,6 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `loss::buhl_momentum_ct`: the momentum-side thrust coefficient with Buhl's turbulent windmill correction (NREL/TP-500-36834, eq. 18), which touches the classical `4Fa(1 − a)` at a = 0.4 and reaches 2 at a = 1. The closure is not yet used by `BemtSolver`.
 - `BemtSolver::with_swirl(bool)` and `swirl()`: solve the tangential induction `a'` per annulus. Off by default so the validated hover numbers do not move.
 
 ### Changed
