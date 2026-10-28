@@ -9,6 +9,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `viscous::van_driest_ii_cf`: compressible turbulent flat-plate skin friction with Mach number and wall temperature, from the van Driest II transformation and the Coles–Fernholz relation (Zhu et al., arXiv:2609.02650). Regression-tested; the paper's 3.67 % DNS error is not reproduced.
 - `poststall`: the AERODAS empirical post-stall model (Spera, NASA/CR-2008-215434): `cl_max`, `cd_max`, `post_stall_lift` and `post_stall_drag`. The S809 and S809-blade table values in the report are reproduced in the tests.
 - `AirfoilPolar::cl_max`: the peak tabulated section lift coefficient, for use as a lift-limit in `tpt-aero-vlm`.
 

@@ -41,6 +41,63 @@ pub fn flat_plate_cf(re: f64) -> f64 {
     }
 }
 
+/// Van Driest II compressible skin friction on a flat plate, from the
+/// incompressible Coles–Fernholz relation.
+///
+/// The compressible coefficient is `C_f = C_f,i / F_C`, with the incompressible
+/// coefficient at the transformed Reynolds number `F_θ·Re_θ`:
+/// `√(2/C_f,i) = ln(F_θ·Re_θ)/κ + C` with `κ = 0.384` and `C = 4.127`. The
+/// transformation factors are (Zhu et al., arXiv:2609.02650, eqs. 2.2, A.8 and
+/// the Walz relation):
+///
+/// * `F_C = (T_r/T_∞ − 1) / (arcsin α₀ + arcsin β₀)²`, with
+///   `α₀ = (2A₀² − B₀)/√(B₀² + 4A₀²)`, `β₀ = B₀/√(B₀² + 4A₀²)`,
+///   `A₀² = (T_r − T_∞)/T_w`, `B₀ = T_r/T_w − 1`;
+/// * `F_θ = μ_∞/μ_w`, with Sutherland viscosity (`S = 110.4 K`, `T_∞ = 288.15 K`);
+/// * `T_r = T_∞ [1 + r(γ−1)M²/2]`, `r = Pr^{1/3}`, `Pr = 0.72`, `γ = 1.4`.
+///
+/// Arguments: `re_theta` is the momentum-thickness Reynolds number of the
+/// compressible boundary layer, `mach` the freestream Mach number, and
+/// `wall_temperature_ratio` the wall temperature over the freestream
+/// temperature (`T_w/T_∞`). For an adiabatic wall use `T_r/T_∞`.
+///
+/// The paper reports a mean error of 3.67 % against its DNS database for this
+/// form (Mach 0.30 to 13.6, `T_w/T_r` from 0.18 to 1.89). That check is not
+/// reproduced here. The incompressible relation is stated for
+/// `Re_θ,i ≳ 5000`, and the function does not check that.
+///
+/// Returns NaN unless every argument is finite and positive. `mach = 0` is
+/// excluded: both the numerator and denominator of `F_C` vanish there.
+#[must_use]
+pub fn van_driest_ii_cf(re_theta: f64, mach: f64, wall_temperature_ratio: f64) -> f64 {
+    const PRANDTL: f64 = 0.72;
+    const GAMMA: f64 = 1.4;
+    const SUTHERLAND_OVER_TINF: f64 = 110.4 / 288.15;
+    const KAPPA: f64 = 0.384;
+    const C_LOG: f64 = 4.127;
+
+    let valid = |x: f64| x.is_finite() && x > 0.0;
+    if !(valid(re_theta) && valid(mach) && valid(wall_temperature_ratio)) {
+        return f64::NAN;
+    }
+    let recovery = PRANDTL.powf(1.0 / 3.0);
+    // Recovery and wall temperatures as ratios to the freestream temperature.
+    let t_r = 1.0 + recovery * (GAMMA - 1.0) * mach * mach / 2.0;
+    let t_w = wall_temperature_ratio;
+    let a2 = (t_r - 1.0) / t_w;
+    let b = t_r / t_w - 1.0;
+    let root = (b * b + 4.0 * a2).sqrt();
+    let alpha = (2.0 * a2 - b) / root;
+    let beta = b / root;
+    let f_c = (t_r - 1.0) / (alpha.asin() + beta.asin()).powi(2);
+    // Sutherland: μ_w/μ_∞ = (T_w/T_∞)^{3/2} (1 + S')/(T_w/T_∞ + S'), S' = S/T_∞.
+    let mu_w = t_w.powf(1.5) * (1.0 + SUTHERLAND_OVER_TINF) / (t_w + SUTHERLAND_OVER_TINF);
+    let f_theta = 1.0 / mu_w;
+    let root_cf = (f_theta * re_theta).ln() / KAPPA + C_LOG;
+    let cf_incompressible = 2.0 / (root_cf * root_cf);
+    cf_incompressible / f_c
+}
+
 /// Hoerner's form factor for a streamlined body or lifting surface of
 /// thickness ratio `t/c`: `FF = 1 + 2(t/c) + 60(t/c)⁴`.
 ///
@@ -174,5 +231,57 @@ mod validation_tests {
         assert!(form_factor(-0.1).is_nan());
         assert!(form_factor(f64::INFINITY).is_nan());
         assert!(flat_plate_cf(1.0e6).is_finite());
+    }
+
+    fn incompressible_cf(re_theta: f64) -> f64 {
+        let root = re_theta.ln() / 0.384 + 4.127;
+        2.0 / (root * root)
+    }
+
+    #[test]
+    fn van_driest_ii_reduces_to_the_incompressible_relation_at_low_mach() {
+        // M → 0 with an isothermal wall: F_C = F_θ = 1.
+        let cf = van_driest_ii_cf(1.0e4, 1.0e-3, 1.0);
+        assert!((cf / incompressible_cf(1.0e4) - 1.0).abs() < 1e-4, "{cf}");
+    }
+
+    #[test]
+    fn van_driest_ii_adiabatic_factor_matches_the_closed_form() {
+        // Adiabatic wall (B₀ = 0): α₀ = A₀, β₀ = 0, so
+        // F_C = (T_r/T_∞ − 1)/arcsin²(√(1 − T_∞/T_r)).
+        let mach: f64 = 3.0;
+        let t_r = 1.0 + 0.72_f64.powf(1.0 / 3.0) * 0.4 * mach * mach / 2.0;
+        let f_c = (t_r - 1.0) / (1.0 - 1.0 / t_r).sqrt().asin().powi(2);
+        let cf = van_driest_ii_cf(1.0e4, mach, t_r);
+        let f_theta_adiabatic =
+            1.0 / (t_r.powf(1.5) * (1.0 + 110.4 / 288.15) / (t_r + 110.4 / 288.15));
+        let expected = incompressible_cf(f_theta_adiabatic * 1.0e4) / f_c;
+        assert!((cf / expected - 1.0).abs() < 1e-9, "{cf} vs {expected}");
+    }
+
+    #[test]
+    fn van_driest_ii_mach_3_adiabatic_regression() {
+        // Value from the closed form above: C_f/C_f,i(Re_θ = 10⁴) ≈ 0.506 at M = 3.
+        let t_r = 1.0 + 0.72_f64.powf(1.0 / 3.0) * 0.4 * 9.0 / 2.0;
+        let cf = van_driest_ii_cf(1.0e4, 3.0, t_r);
+        assert!((cf - 0.00146).abs() < 2.0e-5, "{cf}");
+    }
+
+    #[test]
+    fn van_driest_ii_cooled_wall_has_more_friction_than_adiabatic() {
+        // At M = 3 friction falls as the wall warms toward the recovery temperature.
+        let adiabatic = 1.0 + 0.72_f64.powf(1.0 / 3.0) * 0.4 * 9.0 / 2.0;
+        let cooled = van_driest_ii_cf(1.0e4, 3.0, 0.5);
+        let mid = van_driest_ii_cf(1.0e4, 3.0, 1.0);
+        let hot = van_driest_ii_cf(1.0e4, 3.0, adiabatic);
+        assert!(cooled > mid && mid > hot, "{cooled} {mid} {hot}");
+    }
+
+    #[test]
+    fn van_driest_ii_rejects_invalid_inputs() {
+        assert!(van_driest_ii_cf(1.0e4, 0.0, 1.0).is_nan());
+        assert!(van_driest_ii_cf(0.0, 3.0, 1.0).is_nan());
+        assert!(van_driest_ii_cf(1.0e4, 3.0, -1.0).is_nan());
+        assert!(van_driest_ii_cf(f64::NAN, 3.0, 1.0).is_nan());
     }
 }
