@@ -1,26 +1,25 @@
 # Contributing to tpt-aero
 
 Thanks for looking at tpt-aero. It is a pure-Rust aerodynamics library, and
-most of the value is in the numbers being right, so a change that alters a
-result needs evidence.
+most of the value is in the numbers being right.
 
-## Before you start
+Contributions are made through issues only. Pull requests are not accepted.
+Open an issue to report a bug, ask a question or propose a change, and include
+enough evidence for any change that alters a result.
+
+## Before you open an issue
 
 - Read [docs/CONVENTIONS.md](docs/CONVENTIONS.md) for frames, signs and units.
-- Check [todo.md](todo.md) for open items. Work that is listed
-  there is welcome; say in the issue which item you are taking.
-- Open an issue first for anything that changes an API or a published number.
+- Check [todo.md](todo.md) for open items and mention the item your issue
+  relates to.
+- Say in the issue if it changes an API or a published number, and what the
+  expected value is and where it comes from.
 
-## Making a change
+## What a useful bug report includes
 
-1. `cargo test --workspace` must pass, including doctests.
-2. `cargo clippy --workspace --all-targets -- -D warnings` must be clean.
-3. `cargo fmt --all` for the files you touched. (The repository has one
-   pre-existing formatting diff in `crates/tpt-aero-rotor/src/lib.rs`; leave it
-   alone unless you are already editing that file.)
-4. A bug fix lands with a regression test that fails before the fix.
-5. A change to a validated result updates [docs/VALIDATION.md](docs/VALIDATION.md)
-   in the same pull request.
+- The version or commit you are using.
+- A minimal reproduction, such as a short code snippet or test case.
+- The actual result, the expected result and how the expectation was derived.
 
 ## What the tests are for
 
@@ -32,4 +31,5 @@ result needs evidence.
 ## Licence
 
 Contributions are dual-licensed MIT OR Apache-2.0, the same as the project.
-Do not add a dependency that is Apache-2.0 only (see `deny.toml`).
+If an issue proposes a new dependency, state its licence; it must be allowed
+by `deny.toml`.
