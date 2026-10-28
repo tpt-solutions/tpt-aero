@@ -3,7 +3,7 @@
 
 use tpt_aero_core::{Vec3, WingPlanform, WingSection};
 use tpt_aero_stability::sixdof::{
-    simulate, simulate_with_loads, Controls, RigidBody, SixDofConfig, State,
+    simulate, simulate_with_loads, Controls, RigidBody, SixDofConfig, SixDofError, State,
 };
 use tpt_aero_stability::trim::{trim_level_flight, TrimRequest};
 use tpt_aero_stability::turn::{coordinated_turn_rate, trim_steady_turn, TurnRequest, G};
@@ -70,7 +70,72 @@ fn config() -> SixDofConfig<'static> {
         rudder: "rudder",
         wind_ned: [0.0, 0.0, 0.0],
         thrust_body_fixed: false,
+        isa_density: false,
     }
+}
+
+#[test]
+fn isa_density_matches_a_constant_run_at_the_same_altitude() {
+    // One step from altitude 1000 m: the ISA density there must give the same
+    // loads as passing that density in as the constant.
+    let m = aircraft();
+    let t = trim_level_flight(
+        &m,
+        &TrimRequest {
+            weight_n: MASS * G,
+            v_inf: V,
+            density: RHO,
+            elevator: "elevator",
+            cd0: CD0,
+        },
+    )
+    .unwrap();
+    let x0 = steady_state(t.alpha_rad, 0.0, 0.0);
+    let controls = Controls {
+        elevator: t.elevator_rad,
+        ..Controls::default()
+    };
+    let rho_1000 = tpt_aero_atmo::isa::at(1000.0).unwrap().density;
+    let isa = SixDofConfig {
+        isa_density: true,
+        ..config()
+    };
+    let constant = SixDofConfig {
+        density: rho_1000,
+        ..config()
+    };
+    let run = |cfg: &SixDofConfig<'_>| {
+        simulate(&m, cfg, x0, 1e-3, 1, &|_| controls, &|_, _| t.thrust_n).unwrap()
+    };
+    let (a, b) = (run(&isa), run(&constant));
+    let (sa, sb) = (a[1].1, b[1].1);
+    for (x, y) in [(sa.u, sb.u), (sa.w, sb.w), (sa.q, sb.q)] {
+        assert!((x - y).abs() < 1e-12, "{x} vs {y}");
+    }
+}
+
+#[test]
+fn isa_density_refuses_altitude_outside_the_model() {
+    let m = aircraft();
+    let high = State {
+        altitude: 90_000.0,
+        ..steady_state(0.05, 0.0, 0.0)
+    };
+    let isa = SixDofConfig {
+        isa_density: true,
+        ..config()
+    };
+    let err = simulate(
+        &m,
+        &isa,
+        high,
+        1e-3,
+        1,
+        &|_| Controls::default(),
+        &|_, _| 0.0,
+    )
+    .unwrap_err();
+    assert_eq!(err, SixDofError::AltitudeOutOfRange);
 }
 
 /// Velocity and attitude of steady flight at `alpha`, `beta` and bank `phi`

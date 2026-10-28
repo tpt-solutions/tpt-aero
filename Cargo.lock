@@ -870,6 +870,7 @@ name = "tpt-aero-stability"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "tpt-aero-atmo",
  "tpt-aero-core",
  "tpt-aero-vlm",
  "tpt-math-autodiff-fwd",
@@ -912,21 +913,21 @@ dependencies = [
 
 [[package]]
 name = "tpt-math-autodiff-fwd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tpt-math-numeric",
 ]
 
 [[package]]
 name = "tpt-math-linalg-dense"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tpt-math-numeric",
 ]
 
 [[package]]
 name = "tpt-math-numeric"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libm",
  "num-traits",

@@ -54,7 +54,8 @@ pub struct RigidBody {
 pub struct SixDofConfig<'a> {
     /// Mass properties.
     pub body: RigidBody,
-    /// Air density (kg/m³), constant over the run.
+    /// Air density (kg/m³), constant over the run. Used only when
+    /// `isa_density` is `false`.
     pub density: f64,
     /// Parasite drag coefficient referenced to the model's reference area,
     /// added to the VLM's induced drag. Fuselage and other non-lifting drag
@@ -72,6 +73,11 @@ pub struct SixDofConfig<'a> {
     /// Thrust along the body x axis (`true`) rather than along the air-relative
     /// velocity (`false`, the default). Use `true` for a propeller on the nose.
     pub thrust_body_fixed: bool,
+    /// Take the air density from the standard atmosphere at each state's
+    /// altitude (`tpt_aero_atmo::isa`, 0 to 84 852 m) instead of `density`.
+    /// A climb or descent then changes the dynamic pressure. The run stops
+    /// with [`SixDofError::AltitudeOutOfRange`] outside that range.
+    pub isa_density: bool,
 }
 
 /// Control deflections (rad), VLM sign convention (see
@@ -172,6 +178,10 @@ pub enum SixDofError {
     GimbalLock,
     /// The VLM solve failed.
     Vlm(VlmError),
+    /// The altitude is outside the ISA model (0 to 84 852 m), so the
+    /// standard-atmosphere density is undefined. Only raised with
+    /// `isa_density`.
+    AltitudeOutOfRange,
 }
 
 impl core::fmt::Display for SixDofError {
@@ -184,6 +194,9 @@ impl core::fmt::Display for SixDofError {
             Self::InvalidState => write!(f, "airspeed must be positive and the state finite"),
             Self::GimbalLock => write!(f, "pitch is near ±90°: Euler angles are singular"),
             Self::Vlm(e) => write!(f, "VLM solve failed: {e}"),
+            Self::AltitudeOutOfRange => {
+                write!(f, "altitude is outside the ISA range (0 to 84 852 m)")
+            }
         }
     }
 }
@@ -223,6 +236,7 @@ struct Aero<'m> {
     model: &'m VlmModel,
     body: RigidBody,
     density: f64,
+    isa_density: bool,
     parasite_cd: f64,
     ie: usize,
     ia: usize,
@@ -279,6 +293,7 @@ impl<'m> Aero<'m> {
             model,
             body: b,
             density: cfg.density,
+            isa_density: cfg.isa_density,
             parasite_cd: cfg.parasite_cd,
             ie: model
                 .control_index(cfg.elevator)
@@ -334,7 +349,14 @@ impl<'m> Aero<'m> {
         let alpha = w_r.atan2(u_r);
         let beta = (v_r / v_air).clamp(-1.0, 1.0).asin();
         let (sa, ca) = alpha.sin_cos();
-        let q_dyn = 0.5 * self.density * v_air * v_air;
+        let rho = if self.isa_density {
+            tpt_aero_atmo::isa::at(s.altitude)
+                .map_err(|_| SixDofError::AltitudeOutOfRange)?
+                .density
+        } else {
+            self.density
+        };
+        let q_dyn = 0.5 * rho * v_air * v_air;
         self.q_s = q_dyn * self.model.reference().area;
 
         // Model-frame angular velocity ω_m = R (p, q, r) = (−p, q, −r), projected
@@ -350,7 +372,6 @@ impl<'m> Aero<'m> {
             q: omega_m[1],
             r: dot(&down, &omega_m),
         };
-        let rho = self.density;
         let prepared = self.prepared(controls)?;
         let loads = prepared.solve_state(&flight, v_air, rho)?;
 

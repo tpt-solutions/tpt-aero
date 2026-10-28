@@ -260,6 +260,7 @@ fn main() {
         rudder: "rudder",
         wind_ned: [0.0, 0.0, 0.0],
         thrust_body_fixed: false,
+        isa_density: false,
     };
     let (sa, ca) = trim.alpha_rad.sin_cos();
     let x0 = State {
