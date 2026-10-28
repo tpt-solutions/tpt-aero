@@ -29,8 +29,8 @@ repository = "https://github.com/tpt-solutions/tpt-aero"
 # workspace). All linear solves are native: tpt-math-linalg-dense is a
 # hand-rolled dense backend with from-scratch partial-pivot LU — no external
 # solver crates, no C/C++ FFI.
-tpt-math-numeric = { version = "0.1.0", path = "../tpt-math/crates/tpt-math-numeric", default-features = false }
-tpt-math-linalg-dense = { version = "0.1.0", path = "../tpt-math/crates/tpt-math-linalg-dense", default-features = false }
+tpt-math-numeric = { version = "0.2.0", path = "../tpt-math/crates/tpt-math-numeric", default-features = false }
+tpt-math-linalg-dense = { version = "0.2.0", path = "../tpt-math/crates/tpt-math-linalg-dense", default-features = false }
 tpt-math-units = { version = "0.1.0", path = "../tpt-math/crates/tpt-math-units", default-features = false }
 tpt-math-autodiff-fwd = { version = "0.1.0", path = "../tpt-math/crates/tpt-math-autodiff-fwd", default-features = false }
 

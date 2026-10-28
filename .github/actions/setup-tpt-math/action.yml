@@ -18,5 +18,5 @@ runs:
           git -C "$dest" fetch --depth 1 origin "$sha"
           git -C "$dest" checkout --quiet FETCH_HEAD
         }
-        clone tpt-math https://github.com/tpt-solutions/tpt-math.git 2b86a62c6f323d06c715c862304ae064f153c279
+        clone tpt-math https://github.com/tpt-solutions/tpt-math.git 1e2e31c33a551ac4dc5bcbc89e5d0e10e23dc756
         clone tpt-simd https://github.com/tpt-solutions/tpt-simd.git 52236bac1ecb131026ed449241caab98b79b8581
