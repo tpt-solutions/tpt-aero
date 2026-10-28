@@ -155,6 +155,14 @@ impl AirfoilPolar {
         (self.cl[i + 1] - self.cl[i - 1]) / (self.alphas[i + 1] - self.alphas[i - 1])
     }
 
+    /// Peak section lift coefficient over the tabulated α range, the value a
+    /// lift-limited wing solve caps each strip at (see
+    /// `VlmModel::solve_stall_limited` in `tpt-aero-vlm`).
+    #[must_use]
+    pub fn cl_max(&self) -> f64 {
+        self.cl.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+    }
+
     /// Apply a smooth stall saturation to a raw (linear) lift value at α.
     ///
     /// See [`StallModel`].
@@ -367,6 +375,14 @@ mod tests {
         let cd: Vec<f64> = alphas.iter().map(|&a| 0.01 + 0.05 * a * a).collect();
         let cm = vec![-0.05; alphas.len()];
         AirfoilPolar::new(alphas, cl, cd, cm, mach, re).expect("valid")
+    }
+
+    #[test]
+    fn cl_max_is_the_peak_of_the_table() {
+        let alphas: Vec<f64> = (-2..=2).map(|d| f64::from(d).to_radians()).collect();
+        let cl = vec![-0.3, 0.2, 0.9, 0.4, -0.1];
+        let polar = AirfoilPolar::new(alphas, cl.clone(), cl.clone(), cl, 0.2, 1.0e6).unwrap();
+        assert!((polar.cl_max() - 0.9).abs() < 1e-12);
     }
 
     #[test]

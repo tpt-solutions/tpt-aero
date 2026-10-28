@@ -8,6 +8,9 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `AirfoilPolar::cl_max`: the peak tabulated section lift coefficient, for use as a lift-limit in `tpt-aero-vlm`.
+
 ### Changed
 - `naca4` rejects nonzero camber with camber position `p = 0` (`InvalidNacaCode`). Such codes were silently flattened to symmetric sections.
 - `PolarSet` blends Reynolds numbers in ln(Re) rather than linearly in Re, so tables are weighted by decades. Non-positive Re returns NaN.

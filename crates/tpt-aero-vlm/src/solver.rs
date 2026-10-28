@@ -1168,6 +1168,27 @@ impl VlmModel {
         twists: &[f64],
         cl_max: f64,
     ) -> Result<VlmSolution, VlmError> {
+        let caps = vec![cl_max; self.lattice.strip_count()];
+        self.solve_stall_limited_per_strip(alpha_rad, v_inf, density, twists, &caps)
+    }
+
+    /// [`VlmModel::solve_stall_limited`] with one cap per spanwise strip, in
+    /// the strip order of `strip_cl` (−y tip to +y tip). Use this when the
+    /// section lift limit varies along the span, for example from an airfoil
+    /// polar at each station.
+    ///
+    /// # Errors
+    /// [`VlmError::DimensionMismatch`] if `cl_max` does not have one entry per
+    /// strip, [`VlmError::InvalidStallLimit`] for any entry that is not finite
+    /// and positive, and the errors of [`VlmModel::solve_stall_limited`].
+    pub fn solve_stall_limited_per_strip(
+        &self,
+        alpha_rad: f64,
+        v_inf: f64,
+        density: f64,
+        twists: &[f64],
+        cl_max: &[f64],
+    ) -> Result<VlmSolution, VlmError> {
         // Section lift slope used to scale each incidence step (thin-airfoil 2π).
         const SECTION_SLOPE: f64 = 2.0 * core::f64::consts::PI;
         // Full step: converges in about 110 iterations on a 16-strip wing at
@@ -1176,7 +1197,11 @@ impl VlmModel {
         const MAX_ITER: usize = 500;
         const TOL: f64 = 1.0e-10;
 
-        if !(cl_max.is_finite() && cl_max > 0.0) {
+        let strips = self.lattice.strip_count();
+        if cl_max.len() != strips {
+            return Err(VlmError::DimensionMismatch);
+        }
+        if cl_max.iter().any(|c| !(c.is_finite() && *c > 0.0)) {
             return Err(VlmError::InvalidStallLimit);
         }
         let n = self.lattice.len();
@@ -1184,7 +1209,6 @@ impl VlmModel {
             return Err(VlmError::DimensionMismatch);
         }
         let elements = self.lattice.elements();
-        let strips = self.lattice.strip_count();
         let base: Vec<f64> = if twists.is_empty() {
             vec![0.0; n]
         } else {
@@ -1203,7 +1227,7 @@ impl VlmModel {
             for (s, d) in delta.iter_mut().enumerate() {
                 let cl = sol.strip_cl[s];
                 let sign = if cl >= 0.0 { 1.0 } else { -1.0 };
-                let excess = cl.abs() - cl_max;
+                let excess = cl.abs() - cl_max[s];
                 let mut next = *d - sign * RELAX * excess / SECTION_SLOPE;
                 // Reduce incidence only: clip to the lift-producing side.
                 next = if sign > 0.0 {
