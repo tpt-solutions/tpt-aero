@@ -117,6 +117,11 @@ mod tests {
 /// `a = 1`, so the momentum balance has no gap for the root search to step
 /// across.
 ///
+/// Chapman et al. (2013, *Renewable Energy* 60, 472–480) apply the same
+/// correction to tidal turbines with tip/hub losses. Their abstract reports
+/// good power prediction and overpredicted thrust against laboratory data. The
+/// paper's equations and numbers were not available for this check.
+///
 /// This is the closure only. The BEMT solver does not use it yet. Its
 /// induction variable `λ_i` maps to `a` only in the windmill regime, and that
 /// mapping needs a validation case before it is wired in.
